@@ -80,6 +80,7 @@
     if (!RECITERS[id]) return;
     currentReciter = id;
     localStorage.setItem(RECITER_KEY, id);
+    pushToCloud();
   }
 
   let session = null;       // { queue: [card,...], idx, total, revealed, currentMode }
@@ -101,12 +102,12 @@
     wordsCache = load(WORDS_CACHE_KEY, {});
     muraja = load(MURAJA_KEY, {});
   }
-  function saveCards() { save(CARDS_KEY, cards); }
-  function saveSettings() { save(SETTINGS_KEY, settings); }
-  function saveStats() { save(STATS_KEY, stats); }
+  function saveCards() { save(CARDS_KEY, cards); pushToCloud(); }
+  function saveSettings() { save(SETTINGS_KEY, settings); pushToCloud(); }
+  function saveStats() { save(STATS_KEY, stats); pushToCloud(); }
   function saveSurahCache() { save(SURAH_CACHE_KEY, surahCache); }
   function saveWordsCache() { save(WORDS_CACHE_KEY, wordsCache); }
-  function saveMuraja() { save(MURAJA_KEY, muraja); }
+  function saveMuraja() { save(MURAJA_KEY, muraja); pushToCloud(); }
 
   // ---------- date helpers ----------
   function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -1617,7 +1618,69 @@
     overlay.innerHTML = "";
   }
 
-  function boot() {
+  // ---------- cloud sync (Firebase, via auth.js) ----------
+  // auth.js exposes window.CloudSync once a user is signed in and approved.
+  // Only cards/muraja/stats/settings/reciter are synced -- surahCache and
+  // wordsCache are pure performance caches, always re-derivable from the
+  // same public APIs, so syncing them would just waste Firestore writes.
+  function buildProgressPayload() {
+    return { cards, muraja, stats, settings, reciter: currentReciter };
+  }
+
+  // Merge, not overwrite: this app's whole reason for syncing is that a
+  // user may ALREADY have divergent, real progress on two unsynced devices
+  // by the time they first sign in on the second one. A naive "cloud wins"
+  // or "local wins" would silently drop real SM-2 scheduling history on
+  // whichever side loses. Per verse, keep whichever side has more actual
+  // study investment (higher reps; later dueDate as a tiebreak) rather than
+  // picking a side wholesale.
+  function mergeCards(local, remote) {
+    const merged = Object.assign({}, local);
+    Object.keys(remote || {}).forEach(key => {
+      const r = remote[key];
+      const l = merged[key];
+      if (!l) { merged[key] = r; return; }
+      const rReps = r.reps || 0, lReps = l.reps || 0;
+      if (rReps > lReps) merged[key] = r;
+      else if (rReps === lReps && (r.dueDate || "") > (l.dueDate || "")) merged[key] = r;
+    });
+    return merged;
+  }
+  function mergeMuraja(local, remote) {
+    const merged = Object.assign({}, local);
+    Object.keys(remote || {}).forEach(key => {
+      const r = remote[key];
+      const l = merged[key];
+      if (!l || (r.lastFullReviewDate || "") > (l.lastFullReviewDate || "")) merged[key] = r;
+    });
+    return merged;
+  }
+  function applyProgressPayload(remote) {
+    if (!remote) return;
+    cards = mergeCards(cards, remote.cards || {});
+    muraja = mergeMuraja(muraja, remote.muraja || {});
+    if (remote.stats) {
+      if ((remote.stats.lastStudyDate || "") >= (stats.lastStudyDate || "")) {
+        stats = Object.assign({}, stats, remote.stats, {
+          totalReviews: Math.max(stats.totalReviews || 0, remote.stats.totalReviews || 0),
+        });
+      } else {
+        stats.totalReviews = Math.max(stats.totalReviews || 0, remote.stats.totalReviews || 0);
+      }
+    }
+    if (remote.settings && STUDY_MODES[remote.settings.mode]) settings = Object.assign({}, settings, remote.settings);
+    if (remote.reciter && RECITERS[remote.reciter]) currentReciter = remote.reciter;
+    save(CARDS_KEY, cards);
+    save(MURAJA_KEY, muraja);
+    save(STATS_KEY, stats);
+    save(SETTINGS_KEY, settings);
+    localStorage.setItem(RECITER_KEY, currentReciter);
+  }
+  function pushToCloud() {
+    if (window.CloudSync && window.CloudSync.user) window.CloudSync.pushProgress(buildProgressPayload());
+  }
+
+  async function boot() {
     loadAll();
     topnavEl.querySelectorAll(".nav-btn").forEach(btn => {
       btn.addEventListener("click", () => switchScreen(btn.dataset.screen));
@@ -1625,8 +1688,18 @@
     document.getElementById("brandBtn").addEventListener("click", () => switchScreen("home"));
     document.getElementById("settingsBtn").addEventListener("click", openSettingsModal);
     renderReciterSelect();
+
+    if (window.CloudSync && window.CloudSync.user) {
+      try {
+        const remote = await window.CloudSync.pullProgress();
+        if (remote) applyProgressPayload(remote);
+        renderReciterSelect();
+        pushToCloud();
+      } catch (e) { /* offline -- continue with local state */ }
+    }
+
     renderHome();
   }
 
-  boot();
+  window.__appReady = boot;
 })();

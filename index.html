@@ -11,7 +11,47 @@
 </head>
 <body>
 
-<div class="app" id="app">
+<div class="app-loading" id="appLoading"><div class="app-loading-mark">﴾ ﴿</div></div>
+
+<div class="auth-gate hidden" id="authGate">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <span class="brand-mark" aria-hidden="true">﴾ ﴿</span>
+      <div class="brand-name">Wird</div>
+    </div>
+    <h2 class="auth-title">Sign in to continue</h2>
+    <p class="auth-sub">Your memorization progress is saved to your account and synced across every device you use — phone, computer, wherever you open Wird.</p>
+    <button type="button" class="auth-google-btn" id="authGoogleBtn">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 01-1.8 2.72v2.26h2.9c1.7-1.57 2.7-3.88 2.7-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.9-2.26c-.8.54-1.84.86-3.06.86-2.35 0-4.34-1.59-5.05-3.72H.94v2.33A9 9 0 009 18z"/><path fill="#FBBC05" d="M3.95 10.7A5.4 5.4 0 013.68 9c0-.59.1-1.16.27-1.7V4.97H.94A9 9 0 000 9c0 1.45.35 2.83.94 4.03l3.01-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.89 11.43 0 9 0A9 9 0 00.94 4.97l3.01 2.33C4.66 5.17 6.65 3.58 9 3.58z"/></svg>
+      Continue with Google
+    </button>
+    <div class="auth-divider"><span>or</span></div>
+    <form class="auth-form" id="authForm" novalidate>
+      <label class="auth-label" for="authEmail">Email</label>
+      <input class="auth-input" type="email" id="authEmail" autocomplete="email" required />
+      <label class="auth-label" for="authPassword">Password</label>
+      <input class="auth-input" type="password" id="authPassword" autocomplete="current-password" required minlength="6" />
+      <button type="submit" class="auth-submit-btn" id="authSubmitBtn">Sign in</button>
+    </form>
+    <a href="#" class="auth-forgot" id="authForgotLink">Forgot password?</a>
+    <button type="button" class="auth-mode-toggle" id="authModeToggle">New here? Create an account</button>
+    <p class="auth-error" id="authError" role="alert"></p>
+  </div>
+</div>
+
+<div class="auth-gate hidden" id="pendingGate">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <span class="brand-mark" aria-hidden="true">﴾ ﴿</span>
+      <div class="brand-name">Wird</div>
+    </div>
+    <h2 class="auth-title">Awaiting approval</h2>
+    <p class="auth-sub">Signed in as <strong id="pendingEmail"></strong>. This account needs to be approved before it can sync — check back shortly.</p>
+    <button type="button" class="auth-mode-toggle" id="pendingSignOutBtn">Sign out</button>
+  </div>
+</div>
+
+<div class="app hidden" id="app">
   <header class="topbar" id="topbar">
     <button class="brand" id="brandBtn">
       <span class="brand-mark" aria-hidden="true">﴾ ﴿</span>
@@ -23,13 +63,26 @@
       <button class="nav-btn" data-screen="mushaf">Mushaf</button>
     </nav>
     <select class="reciter-select" id="reciterSelect" aria-label="Reciter"></select>
+    <button class="settings-btn hidden" id="accountToggle" aria-label="Account">👤</button>
     <button class="settings-btn" id="settingsBtn" aria-label="Study settings">⚙</button>
   </header>
   <div class="modal-overlay" id="settingsOverlay"></div>
+  <div class="modal-overlay hidden" id="accountModal">
+    <div class="modal-card">
+      <div class="modal-heading" style="display:flex;align-items:center;justify-content:space-between">
+        <span>Account</span>
+        <button class="modal-close" id="accountClose" aria-label="Close" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:var(--text-muted)">&times;</button>
+      </div>
+      <p class="modal-sub">Signed in as <strong id="accountEmail"></strong>. Your progress syncs automatically to this account.</p>
+      <button class="secondary-btn" id="signOutBtn" style="width:100%">Sign out</button>
+    </div>
+  </div>
 
   <main class="screen" id="screen"></main>
 </div>
 
 <script src="app.js?v=1"></script>
+<script src="firebase-config.js?v=1"></script>
+<script src="auth.js?v=1"></script>
 </body>
 </html>
