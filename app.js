@@ -2,9 +2,23 @@
   "use strict";
 
   const API = "https://api.alquran.cloud/v1";
-  const CDN_AUDIO_EDITION = "ar.alafasy";
   const TEXT_EDITION = "ar.uthmani";
   const TRANSLATION_EDITION = "en.sahih";
+
+  // Per-ayah audio, computed from surah+ayah directly rather than fetched/
+  // stored -- everyayah.com hosts every reciter below under the same
+  // {surah:03d}{ayah:03d}.mp3 naming, verified live (distinct file sizes/
+  // MD5s per reciter, confirmed not aliased to the same recording) before
+  // wiring this up. Folder names confirmed against two independent sources
+  // (everyayah.com's own directory listing, and mp3quran.net's official
+  // reciter API labeling "Ghamadi" as reciter #30 "Saad Al-Ghamdi") --
+  // not guessed from memory, since getting a reciter's identity wrong on
+  // this kind of app would be a real quality problem.
+  const RECITERS = {
+    alafasy: { name: "Mishary Alafasy", folder: "Alafasy_128kbps" },
+    ghamdi: { name: "Saad Al-Ghamdi", folder: "Ghamadi_40kbps" },
+  };
+  const RECITER_KEY = "wird-reciter-v1";
 
   const CARDS_KEY = "wird-cards-v1";
   const SETTINGS_KEY = "wird-settings-v1";
@@ -22,6 +36,18 @@
   let settings = { newPerDay: 5, reviewCap: 40 };
   let stats = { streak: 0, lastStudyDate: null, totalReviews: 0 };
   let surahCache = {};      // "surahNum" -> {ar: [...], en: [...], audio: [...]}
+  let currentReciter = localStorage.getItem(RECITER_KEY) || "alafasy";
+
+  function pad3(n) { return String(n).padStart(3, "0"); }
+  function audioUrlFor(surah, ayah) {
+    const folder = (RECITERS[currentReciter] || RECITERS.alafasy).folder;
+    return `https://everyayah.com/data/${folder}/${pad3(surah)}${pad3(ayah)}.mp3`;
+  }
+  function setReciter(id) {
+    if (!RECITERS[id]) return;
+    currentReciter = id;
+    localStorage.setItem(RECITER_KEY, id);
+  }
 
   let session = null;       // { queue: [card,...], idx, total, revealed, currentMode }
   let currentAudio = null;
@@ -107,14 +133,12 @@
   async function ensureSurahLoaded(surahNum) {
     const key = String(surahNum);
     if (surahCache[key]) return surahCache[key];
-    const [arRes, enRes, audioRes] = await Promise.all([
+    const [arRes, enRes] = await Promise.all([
       fetchJson(`${API}/surah/${surahNum}/${TEXT_EDITION}`),
       fetchJson(`${API}/surah/${surahNum}/${TRANSLATION_EDITION}`),
-      fetchJson(`${API}/surah/${surahNum}/${CDN_AUDIO_EDITION}`),
     ]);
     const arAyahs = arRes.data.ayahs;
     const enAyahs = enRes.data.ayahs;
-    const audioAyahs = audioRes.data.ayahs;
     const entry = {
       englishName: arRes.data.englishName,
       englishNameTranslation: arRes.data.englishNameTranslation,
@@ -122,7 +146,6 @@
         numberInSurah: a.numberInSurah,
         text: a.text.trim(),
         translation: (enAyahs[i] && enAyahs[i].text) || "",
-        audio: (audioAyahs[i] && audioAyahs[i].audio) || "",
         page: a.page,
         juz: a.juz,
       })),
@@ -138,7 +161,7 @@
   function newCard(surah, ayah, ayahData) {
     return {
       surah, ayah,
-      text: ayahData.text, translation: ayahData.translation, audio: ayahData.audio,
+      text: ayahData.text, translation: ayahData.translation,
       page: ayahData.page, juz: ayahData.juz,
       interval: 0, ease: 2.5, reps: 0,
       dueDate: todayISO(),
@@ -527,7 +550,7 @@
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
       e.currentTarget.classList.add("playing");
-      playAudio(card.audio, 1, () => e.currentTarget.classList.remove("playing"));
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
     });
     document.getElementById("revealBtn").addEventListener("click", () => {
       document.getElementById("revealArea").innerHTML = `
@@ -561,7 +584,7 @@
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
       e.currentTarget.classList.add("playing");
-      playAudio(card.audio, 1, () => e.currentTarget.classList.remove("playing"));
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
     });
     document.getElementById("revealBtn").addEventListener("click", (e) => {
       document.getElementById("fadeArabic").innerHTML = escapeHtml(card.text);
@@ -603,7 +626,7 @@
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
       e.currentTarget.classList.add("playing");
-      playAudio(card.audio, 1, () => e.currentTarget.classList.remove("playing"));
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
     });
     let answered = false;
     document.querySelectorAll(".chain-opt").forEach(btn => {
@@ -653,7 +676,7 @@
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
       e.currentTarget.classList.add("playing");
-      playAudio(card.audio, 1, () => e.currentTarget.classList.remove("playing"));
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
     });
     let answered = false;
     document.querySelectorAll(".mutashabih-card").forEach(el => {
@@ -701,7 +724,7 @@
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
       e.currentTarget.classList.add("playing");
-      playAudio(card.audio, 1, () => e.currentTarget.classList.remove("playing"));
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
     });
     let answered = false;
     document.querySelectorAll(".page-cell").forEach(btn => {
@@ -741,12 +764,21 @@
     else if (name === "mushaf") renderMushaf();
   }
 
+  function renderReciterSelect() {
+    const sel = document.getElementById("reciterSelect");
+    sel.innerHTML = Object.entries(RECITERS).map(([id, r]) =>
+      `<option value="${id}" ${id === currentReciter ? "selected" : ""}>${escapeHtml(r.name)}</option>`
+    ).join("");
+    sel.addEventListener("change", () => setReciter(sel.value));
+  }
+
   function boot() {
     loadAll();
     topnavEl.querySelectorAll(".nav-btn").forEach(btn => {
       btn.addEventListener("click", () => switchScreen(btn.dataset.screen));
     });
     document.getElementById("brandBtn").addEventListener("click", () => switchScreen("home"));
+    renderReciterSelect();
     renderHome();
   }
 
