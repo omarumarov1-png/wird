@@ -672,6 +672,7 @@
     if (stage === "young" || stage === "mature") {
       modes.push("chain");
       modes.push("page");
+      if (Object.keys(cards).length >= 6) modes.push("blindspot");
     }
     return modes;
   }
@@ -703,6 +704,7 @@
     if (mode === "chain") return renderChainTest(host, card);
     if (mode === "page") return renderPageSense(host, card);
     if (mode === "mutashabih") return renderMutashabih(host, card, mutashabihMatch);
+    if (mode === "blindspot") return renderBlindSpot(host, card);
     return renderListenRecall(host, card);
   }
 
@@ -943,6 +945,59 @@
         btn.classList.add(correct ? "correct" : "incorrect");
         if (!correct) document.querySelector(`.page-cell[data-p="${card.page}"]`).classList.add("correct");
         document.getElementById("pageFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct page." : `This verse is on page ${card.page}.`}</div>`;
+        wireRatingRow(card);
+      });
+    });
+  }
+
+  // -- mode: blind spot (random-access recall) --
+  // Chain Test proves you know what comes NEXT in sequence. This tests a
+  // genuinely different skill: given only audio and no reference, can you
+  // place a verse from ANYWHERE in your memorized set at all -- the same
+  // thing a real listener does by opening the mushaf at random, rather
+  // than always starting recitation from a fixed point.
+  function renderBlindSpot(host, card) {
+    const others = Object.values(cards).filter(c => !(c.surah === card.surah && c.ayah === card.ayah));
+    if (others.length < 2) return renderListenRecall(host, card);
+    const distractors = sample(others, 2);
+    const options = shuffled([card, ...distractors]);
+
+    host.innerHTML = `
+      <div class="review-stage">
+        <div class="mode-kicker">Blind Spot</div>
+        <div class="mode-hint">No reference shown. Listen, then place this verse among your own memorized set.</div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">▶ Play</button></div>
+        <div class="options" id="blindOptions">
+          ${options.map((c, i) => `<button class="option" data-i="${i}">${escapeHtml(refBadge(c))}</button>`).join("")}
+        </div>
+        <div id="blindFeedback"></div>
+        ${ratingRowHtml()}
+      </div>
+    `;
+    document.getElementById("playBtn").addEventListener("click", (e) => {
+      e.currentTarget.classList.add("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+    });
+    let answered = false;
+    document.querySelectorAll("#blindOptions .option").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (answered) return;
+        answered = true;
+        const chosen = options[Number(btn.dataset.i)];
+        const correct = chosen.surah === card.surah && chosen.ayah === card.ayah;
+        document.querySelectorAll("#blindOptions .option").forEach(b => b.disabled = true);
+        btn.classList.add(correct ? "correct" : "incorrect");
+        if (!correct) {
+          document.querySelectorAll("#blindOptions .option").forEach((b, i) => {
+            if (options[i].surah === card.surah && options[i].ayah === card.ayah) b.classList.add("correct");
+          });
+        }
+        document.getElementById("blindFeedback").innerHTML = `
+          <div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Placed correctly." : "This was " + escapeHtml(refBadge(card)) + "."}</div>
+          <div class="card-arabic-box" style="margin-top:14px"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
+          <div class="card-translation">${escapeHtml(card.translation)}</div>
+        `;
+        wireWordTooltips(document.getElementById("blindFeedback"));
         wireRatingRow(card);
       });
     });
