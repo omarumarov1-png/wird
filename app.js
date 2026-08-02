@@ -740,14 +740,39 @@
     return audio;
   }
 
+  function wordDataFor(card) {
+    const bySurah = wordsCache[String(card.surah)];
+    return (bySurah && bySurah[card.ayah]) || null;
+  }
+  function hasConsecutiveTriple(card) {
+    const key1 = cardKey(card.surah, card.ayah + 1);
+    const key2 = cardKey(card.surah, card.ayah + 2);
+    return !!(cards[key1] && cards[key2]);
+  }
+  function countAvailableDistractorWords(excludeSurah, excludeAyah) {
+    let n = 0;
+    Object.values(cards).forEach(c => {
+      if (c.surah === excludeSurah && c.ayah === excludeAyah) return;
+      const wd = wordDataFor(c);
+      if (wd) n += wd.length;
+    });
+    return n;
+  }
+
   function eligibleModes(card) {
     const stage = masteryStage(card);
     const modes = ["listen"];
     if (stage !== "new") modes.push("fade");
+    const wordData = wordDataFor(card);
+    if (stage === "learning" || stage === "young" || stage === "mature") {
+      if (wordData && wordData.length >= 2 && wordData.length <= 12) modes.push("assemble");
+    }
     if (stage === "young" || stage === "mature") {
       modes.push("chain");
       modes.push("page");
       if (Object.keys(cards).length >= 6) modes.push("blindspot");
+      if (hasConsecutiveTriple(card)) modes.push("sequence");
+      if (wordData && wordData.length >= 3 && countAvailableDistractorWords(card.surah, card.ayah) >= 2) modes.push("cloze");
     }
     return modes;
   }
@@ -780,6 +805,9 @@
     if (mode === "page") return renderPageSense(host, card);
     if (mode === "mutashabih") return renderMutashabih(host, card, mutashabihMatch);
     if (mode === "blindspot") return renderBlindSpot(host, card);
+    if (mode === "assemble") return renderAssemble(host, card);
+    if (mode === "sequence") return renderSequence(host, card);
+    if (mode === "cloze") return renderCloze(host, card);
     return renderListenRecall(host, card);
   }
 
@@ -1073,6 +1101,189 @@
           <div class="card-translation">${escapeHtml(card.translation)}</div>
         `;
         wireWordTooltips(document.getElementById("blindFeedback"));
+        wireRatingRow(card);
+      });
+    });
+  }
+
+  // -- mode: assemble (word order) --
+  // Uses the real per-word breakdown (quran.com), not a naive whitespace
+  // split of card.text -- word boundaries from the authoritative
+  // word-by-word source avoid any mismatch with diacritic/whitespace
+  // quirks a manual split could introduce.
+  function renderAssemble(host, card) {
+    const wordData = wordDataFor(card);
+    if (!wordData) return renderFadeRecall(host, card);
+    const bank = shuffled(wordData.map((w, i) => ({ ...w, id: i })));
+    const placed = [];
+
+    host.innerHTML = `
+      <div class="review-stage">
+        <div class="mode-kicker">Word Order</div>
+        <div class="mode-hint">Tap the words in the right order to rebuild the verse.</div>
+        <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
+        <div class="wb-target" id="assembleTarget" dir="rtl"></div>
+        <div class="wb-bank" id="assembleBank">
+          ${bank.map(w => `<button class="wb-chip" data-id="${w.id}" data-ar="${escapeHtml(w.ar)}">${escapeHtml(w.ar)}</button>`).join("")}
+        </div>
+        <button class="primary-btn" id="assembleCheckBtn" disabled>Check</button>
+        <div id="assembleFeedback"></div>
+        ${ratingRowHtml()}
+      </div>
+    `;
+    document.getElementById("playBtn").addEventListener("click", (e) => {
+      e.currentTarget.classList.add("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+    });
+
+    const targetEl = document.getElementById("assembleTarget");
+    const checkBtn = document.getElementById("assembleCheckBtn");
+    function renderTarget() {
+      targetEl.innerHTML = placed.map(w => `<button class="wb-chip in-target" data-id="${w.id}">${escapeHtml(w.ar)}</button>`).join("");
+      checkBtn.disabled = placed.length !== wordData.length;
+      targetEl.querySelectorAll(".wb-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+          const id = Number(chip.dataset.id);
+          const idx = placed.findIndex(p => p.id === id);
+          if (idx >= 0) placed.splice(idx, 1);
+          const bankChip = document.querySelector(`#assembleBank .wb-chip[data-id="${id}"]`);
+          if (bankChip) bankChip.classList.remove("placed");
+          renderTarget();
+        });
+      });
+    }
+    document.getElementById("assembleBank").querySelectorAll(".wb-chip").forEach(chip => {
+      chip.addEventListener("click", () => {
+        if (chip.classList.contains("placed")) return;
+        const id = Number(chip.dataset.id);
+        placed.push(wordData.find((w, i) => i === id));
+        placed[placed.length - 1].id = id;
+        chip.classList.add("placed");
+        renderTarget();
+      });
+    });
+    checkBtn.addEventListener("click", () => {
+      checkBtn.disabled = true;
+      const correct = placed.every((w, i) => w.id === i);
+      document.querySelectorAll("#assembleBank .wb-chip").forEach(c => c.style.pointerEvents = "none");
+      document.querySelectorAll("#assembleTarget .wb-chip").forEach(c => c.style.pointerEvents = "none");
+      document.getElementById("assembleFeedback").innerHTML = correct
+        ? `<div class="feedback-line correct">Correct order.</div>`
+        : `<div class="feedback-line incorrect">Not quite. Correct order:</div><div class="card-arabic-box" style="margin-top:10px"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>`;
+      if (!correct) wireWordTooltips(document.getElementById("assembleFeedback"));
+      wireRatingRow(card);
+    });
+  }
+
+  // -- mode: sequence (verse stitching) --
+  // Tests whether you know the ORDER of several consecutive verses, not
+  // just each verse's own words -- a different structural test than
+  // Chain Test's single-pair "what comes next," closer to reciting a
+  // real passage rather than isolated verses.
+  function renderSequence(host, card) {
+    const triple = [card, cards[cardKey(card.surah, card.ayah + 1)], cards[cardKey(card.surah, card.ayah + 2)]];
+    if (triple.some(v => !v)) return renderFadeRecall(host, card);
+    const shuffledTriple = shuffled(triple.map((v, i) => ({ ...v, correctPos: i })));
+    const placed = [];
+
+    host.innerHTML = `
+      <div class="review-stage">
+        <div class="mode-kicker">Verse Stitching</div>
+        <div class="mode-hint">Tap these three verses in the order they actually appear.</div>
+        <div class="ref-badge">${escapeHtml(refBadge(card))} — ${card.ayah + 2}</div>
+        <div class="wb-target" id="seqTarget" dir="rtl" style="flex-direction:column;align-items:stretch"></div>
+        <div class="options" id="seqBank">
+          ${shuffledTriple.map((v, i) => `<button class="option" data-i="${i}">${escapeHtml(v.text)}</button>`).join("")}
+        </div>
+        <div id="seqFeedback"></div>
+        ${ratingRowHtml()}
+      </div>
+    `;
+
+    const targetEl = document.getElementById("seqTarget");
+    function renderTarget() {
+      targetEl.innerHTML = placed.map(v => `<div class="wb-chip in-target" dir="rtl" style="width:100%;text-align:right;white-space:normal">${escapeHtml(v.text)}</div>`).join("");
+    }
+    let answered = false;
+    document.querySelectorAll("#seqBank .option").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (answered || btn.disabled) return;
+        const i = Number(btn.dataset.i);
+        placed.push(shuffledTriple[i]);
+        btn.disabled = true;
+        btn.style.opacity = "0.35";
+        renderTarget();
+        if (placed.length === 3) {
+          answered = true;
+          const correct = placed.every((v, i) => v.correctPos === i);
+          document.getElementById("seqFeedback").innerHTML = correct
+            ? `<div class="feedback-line correct">Correct sequence.</div>`
+            : `<div class="feedback-line incorrect">Not quite the right order — review the transitions between these three.</div>`;
+          wireRatingRow(card);
+        }
+      });
+    });
+  }
+
+  // -- mode: cloze (missing word) --
+  // Distractor words are always drawn from OTHER real, already-memorized
+  // verses in the user's own set -- never invented -- same discipline as
+  // every other exercise here.
+  function renderCloze(host, card) {
+    const wordData = wordDataFor(card);
+    if (!wordData) return renderFadeRecall(host, card);
+    const blankIdx = 1 + Math.floor(Math.random() * (wordData.length - 1)); // avoid blanking the very first word
+    const correctWord = wordData[blankIdx];
+
+    const otherWords = [];
+    Object.values(cards).forEach(c => {
+      if (c.surah === card.surah && c.ayah === card.ayah) return;
+      const wd = wordDataFor(c);
+      if (wd) wd.forEach(w => { if (w.ar !== correctWord.ar) otherWords.push(w); });
+    });
+    const distractors = sample(otherWords, 2);
+    if (distractors.length < 2) return renderFadeRecall(host, card);
+    const options = shuffled([correctWord, ...distractors]);
+
+    const withBlank = wordData.map((w, i) => i === blankIdx
+      ? `<span class="hidden-word">____</span>`
+      : `<span class="word-tap" data-tr="${escapeHtml(w.tr)}" data-en="${escapeHtml(w.en)}">${escapeHtml(w.ar)}</span>`
+    ).join(" ");
+
+    host.innerHTML = `
+      <div class="review-stage">
+        <div class="mode-kicker">Missing Word</div>
+        <div class="mode-hint">Which word belongs in the gap?</div>
+        <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
+        <div class="card-arabic-box"><div class="card-arabic">${withBlank}</div></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
+        <div class="options" id="clozeOptions">
+          ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
+        </div>
+        <div id="clozeFeedback"></div>
+        ${ratingRowHtml()}
+      </div>
+    `;
+    wireWordTooltips(host.querySelector(".card-arabic-box"));
+    document.getElementById("playBtn").addEventListener("click", (e) => {
+      e.currentTarget.classList.add("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+    });
+    let answered = false;
+    document.querySelectorAll("#clozeOptions .option").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (answered) return;
+        answered = true;
+        const correct = options[Number(btn.dataset.i)].ar === correctWord.ar;
+        document.querySelectorAll("#clozeOptions .option").forEach(b => b.disabled = true);
+        btn.classList.add(correct ? "correct" : "incorrect");
+        if (!correct) {
+          document.querySelectorAll("#clozeOptions .option").forEach((b, i) => {
+            if (options[i].ar === correctWord.ar) b.classList.add("correct");
+          });
+        }
+        document.getElementById("clozeFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : "The missing word was " + escapeHtml(correctWord.ar) + "."}</div>`;
         wireRatingRow(card);
       });
     });
