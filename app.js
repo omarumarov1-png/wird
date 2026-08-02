@@ -629,7 +629,7 @@
         bg = ratio > 0.66 ? "var(--good-soft)" : ratio > 0.33 ? "var(--gold-soft)" : "var(--surface-2)";
         col = ratio > 0.66 ? "var(--good)" : ratio > 0.33 ? "var(--gold)" : "var(--text-muted)";
       }
-      return `<div class="mushaf-page-cell has-verses" style="background:${bg};color:${col};border-color:${col}" title="${cs.length} verse(s) on page ${p}">${p}</div>`;
+      return `<button class="mushaf-page-cell has-verses" data-page="${p}" style="background:${bg};color:${col};border-color:${col}" title="Tap to listen — ${cs.length} verse(s) on page ${p}">${p}</button>`;
     }).join("");
 
     const topStruggles = allCards
@@ -685,6 +685,119 @@
     document.querySelectorAll(".weak-row").forEach(btn => {
       btn.addEventListener("click", () => startDrill(btn.dataset.key));
     });
+    document.querySelectorAll(".mushaf-page-cell.has-verses").forEach(btn => {
+      btn.addEventListener("click", () => renderPageListen(Number(btn.dataset.page)));
+    });
+  }
+
+  // ---------- page listen (passive, follow-along recitation) ----------
+  // Deliberately the opposite of Sard: text stays fully visible throughout,
+  // there's no rating and no "stumbled" tracking -- this is for following
+  // along and reinforcing familiarity, not testing recall. Tapping any page
+  // in the Mushaf grid (either view) opens straight into this.
+  let pageListenState = null; // { page, verses, idx, playing }
+
+  function renderPageListen(pageNum) {
+    const verses = Object.values(cards)
+      .filter(c => c.page === pageNum)
+      .sort((a, b) => a.surah - b.surah || a.ayah - b.ayah);
+    if (!verses.length) return renderMushaf();
+    cancelAudio();
+    pageListenState = { page: pageNum, verses, idx: 0, playing: false };
+    drawPageListen();
+  }
+
+  function drawPageListen() {
+    const { page, verses, idx } = pageListenState;
+    const lines = verses.map((v, i) => `
+      <div class="listen-line ${i === idx ? "current" : ""}" data-i="${i}">
+        <div class="listen-line-ref">${escapeHtml(refBadge(v))}</div>
+        <div class="listen-line-arabic">${arabicHtmlFor(v)}</div>
+        <div class="listen-line-translation">${escapeHtml(v.translation)}</div>
+      </div>
+    `).join("");
+
+    screenEl.innerHTML = `
+      <div class="review-bar">
+        <button class="exit-btn" id="exitListenBtn">&times;</button>
+        <div class="progress-track"><div class="progress-fill" id="listenProgressFill" style="width:0%"></div></div>
+      </div>
+      <div class="container">
+        <div class="hero" style="padding-top:12px;padding-bottom:4px">
+          <div class="hero-eyebrow">Listen · Page ${page}</div>
+          <h1 style="font-size:1.4rem">Follow along</h1>
+          <p>Passive listening — text stays visible. Good for reinforcement and tadabbur, not a memory test.</p>
+        </div>
+        <div class="sard-controls">
+          <button class="play-btn" id="listenPlayBtn">▶</button>
+          <button class="secondary-btn" id="listenPrevBtn">◂ Prev</button>
+          <button class="secondary-btn" id="listenNextBtn">Next ▸</button>
+        </div>
+        <div class="listen-lines" id="listenLines">${lines}</div>
+      </div>
+    `;
+    wireWordTooltips(document.getElementById("listenLines"));
+    document.getElementById("exitListenBtn").addEventListener("click", () => { cancelAudio(); pageListenState = null; renderMushaf(); });
+    document.getElementById("listenPlayBtn").addEventListener("click", togglePageListenPlayback);
+    document.getElementById("listenPrevBtn").addEventListener("click", () => stepPageListen(-1));
+    document.getElementById("listenNextBtn").addEventListener("click", () => stepPageListen(1));
+    document.querySelectorAll(".listen-line").forEach(el => {
+      el.addEventListener("click", () => {
+        cancelAudio();
+        pageListenState.playing = false;
+        pageListenState.idx = Number(el.dataset.i);
+        drawPageListen();
+      });
+    });
+    updatePageListenProgress();
+    const current = document.querySelector(".listen-line.current");
+    if (current) current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function updatePageListenProgress() {
+    const { verses, idx } = pageListenState;
+    const pct = Math.round((idx / Math.max(1, verses.length - 1)) * 100);
+    const fill = document.getElementById("listenProgressFill");
+    if (fill) fill.style.width = pct + "%";
+  }
+
+  function togglePageListenPlayback() {
+    const btn = document.getElementById("listenPlayBtn");
+    if (pageListenState.playing) {
+      pageListenState.playing = false;
+      cancelAudio();
+      btn.textContent = "▶";
+      btn.classList.remove("playing");
+      return;
+    }
+    pageListenState.playing = true;
+    btn.textContent = "⏸";
+    btn.classList.add("playing");
+    playCurrentPageListenVerse();
+  }
+  function playCurrentPageListenVerse() {
+    if (!pageListenState || !pageListenState.playing) return;
+    const v = pageListenState.verses[pageListenState.idx];
+    playAudio(audioUrlFor(v.surah, v.ayah), 1, () => {
+      if (!pageListenState || !pageListenState.playing) return;
+      if (pageListenState.idx >= pageListenState.verses.length - 1) {
+        pageListenState.playing = false;
+        const btn = document.getElementById("listenPlayBtn");
+        if (btn) { btn.textContent = "▶"; btn.classList.remove("playing"); }
+        return;
+      }
+      pageListenState.idx++;
+      drawPageListen();
+      const btn = document.getElementById("listenPlayBtn");
+      if (btn) { btn.textContent = "⏸"; btn.classList.add("playing"); }
+      playCurrentPageListenVerse();
+    });
+  }
+  function stepPageListen(delta) {
+    cancelAudio();
+    pageListenState.playing = false;
+    pageListenState.idx = Math.max(0, Math.min(pageListenState.verses.length - 1, pageListenState.idx + delta));
+    drawPageListen();
   }
 
   function startDrill(key) {
