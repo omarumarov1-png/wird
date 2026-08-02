@@ -292,6 +292,67 @@ body {
 .card-arabic .faded-letter { opacity: 0.28; }
 .card-translation { text-align: center; color: var(--text-muted); font-size: 0.92rem; margin-bottom: 20px; line-height: 1.6; }
 
+/* story-card: immersive, auto-looping Listen & Recall */
+.story-mode { padding-top: 18px; }
+.story-swipe-zone {
+  position: relative; overflow: hidden; border-radius: 22px;
+  min-height: 400px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 32px 24px; margin-bottom: 20px; cursor: grab;
+  touch-action: pan-y; user-select: none; -webkit-user-select: none;
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 34px rgba(0,0,0,0.16);
+  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
+}
+.story-swipe-zone.swiping { transition: none; cursor: grabbing; }
+.story-swipe-zone:active { cursor: grabbing; }
+.story-bg {
+  position: absolute; inset: -20%; z-index: 0;
+  background:
+    repeating-linear-gradient(135deg, color-mix(in srgb, var(--gold) 10%, transparent) 0px, color-mix(in srgb, var(--gold) 10%, transparent) 1px, transparent 1px, transparent 34px),
+    repeating-linear-gradient(45deg, color-mix(in srgb, var(--bg) 14%, transparent) 0px, color-mix(in srgb, var(--bg) 14%, transparent) 1px, transparent 1px, transparent 34px),
+    radial-gradient(circle at 30% 20%, color-mix(in srgb, var(--gold) 30%, transparent), transparent 55%),
+    radial-gradient(circle at 75% 80%, color-mix(in srgb, var(--emerald) 55%, transparent), transparent 60%),
+    linear-gradient(155deg, var(--emerald) 0%, color-mix(in srgb, var(--emerald) 60%, var(--text) 10%) 55%, var(--gold) 130%);
+  background-size: auto, auto, auto, auto, 220% 220%;
+  animation: storyDrift 18s ease-in-out infinite alternate;
+}
+@keyframes storyDrift {
+  0% { background-position: 0 0, 0 0, 0 0, 0 0, 0% 40%; }
+  100% { background-position: 0 0, 0 0, 0 0, 0 0, 100% 60%; }
+}
+@media (prefers-reduced-motion: reduce) { .story-bg { animation: none; } }
+.story-content { position: relative; z-index: 1; width: 100%; max-width: 480px; text-align: center; }
+.story-swipe-zone .mode-kicker { color: #fff; opacity: 0.85; }
+.story-swipe-zone .ref-badge { color: #fff; opacity: 0.95; }
+.story-loop-indicator {
+  display: inline-flex; align-items: center; gap: 7px; margin: 2px auto 18px;
+  padding: 5px 12px; border-radius: 99px; background: rgba(0,0,0,0.22);
+  color: #fff; font-size: 0.72rem; letter-spacing: 0.02em;
+}
+.pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: #fff; opacity: 0.5; }
+.story-loop-indicator.playing .pulse-dot { animation: dotPulse 1s ease-in-out infinite; }
+@keyframes dotPulse { 0%, 100% { opacity: 0.4; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.15); } }
+.story-swipe-zone #revealArea .reveal-btn { border-color: rgba(255,255,255,0.5); color: #fff; }
+.story-swipe-zone #revealArea .reveal-btn:hover { border-color: #fff; }
+.story-swipe-zone #revealArea .card-arabic-box { background: rgba(255,255,255,0.94); border: none; }
+.story-swipe-zone #revealArea .card-translation { color: rgba(255,255,255,0.88); }
+.story-swipe-hint {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+  padding: 8px 6px; border-radius: 10px; color: #fff; opacity: 0; transition: opacity 0.15s ease;
+  writing-mode: vertical-rl;
+}
+.hint-left { left: 12px; background: color-mix(in srgb, var(--bad) 70%, transparent); }
+.hint-right { right: 12px; background: color-mix(in srgb, var(--good) 70%, transparent); transform: translateY(-50%) rotate(180deg); }
+.story-swipe-zone.swipe-left .hint-left,
+.story-swipe-zone.swipe-right .hint-right { opacity: 1; }
+.story-swipe-zone.swipe-left .story-bg { filter: saturate(1.15) brightness(0.92); }
+.story-swipe-zone.story-committed-good { box-shadow: 0 0 0 4px var(--good), 0 10px 34px rgba(0,0,0,0.16); }
+.story-swipe-zone.story-committed-again { box-shadow: 0 0 0 4px var(--bad), 0 10px 34px rgba(0,0,0,0.16); }
+@media (max-width: 480px) {
+  .story-swipe-zone { min-height: 340px; padding: 26px 18px; }
+}
+
 /* tap/hover-for-transliteration words */
 .word-tap {
   cursor: help;
@@ -337,8 +398,10 @@ body {
 .reveal-btn { display: block; margin: 0 auto 20px; background: none; border: 1.5px dashed var(--border); color: var(--text-muted); border-radius: 12px; padding: 10px 20px; cursor: pointer; font-size: 0.85rem; }
 .reveal-btn:hover { border-color: var(--emerald); color: var(--emerald); }
 
-.rating-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 24px; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
-.rating-row.swiping { touch-action: none; }
+.rating-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 24px; touch-action: pan-y; user-select: none; -webkit-user-select: none; border-radius: 14px; transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), background 0.15s ease; }
+.rating-row.swiping { touch-action: none; transition: none; }
+.rating-row.swipe-right { background: var(--good-soft); }
+.rating-row.swipe-left { background: var(--bad-soft); }
 .rate-btn { border: 1.5px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; color: var(--text); text-align: center; transition: transform 0.08s ease, background 0.08s ease; }
 .rate-btn .sub { display: block; font-size: 0.68rem; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
 .rate-btn.again { border-color: var(--bad); color: var(--bad); }
@@ -347,11 +410,6 @@ body {
 .rate-btn.good { border-color: var(--good); color: var(--good); }
 .rate-btn.good:hover { background: var(--good-soft); }
 .rate-btn.easy:hover { background: var(--emerald-soft); border-color: var(--emerald); }
-.rate-btn.swipe-armed { transform: scale(1.08); box-shadow: 0 3px 12px rgba(0,0,0,0.15); }
-.rate-btn.again.swipe-armed { background: var(--bad-soft); }
-.rate-btn.hard.swipe-armed { background: var(--gold-soft); border-color: var(--gold); }
-.rate-btn.good.swipe-armed { background: var(--good-soft); }
-.rate-btn.easy.swipe-armed { background: var(--emerald-soft); border-color: var(--emerald); }
 .rating-hint { grid-column: 1 / -1; text-align: center; font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
 
 /* chain test */

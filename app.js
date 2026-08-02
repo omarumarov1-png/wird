@@ -1066,126 +1066,202 @@
         <button class="rate-btn hard" data-r="hard">Hard<span class="sub">struggled</span></button>
         <button class="rate-btn good" data-r="good">Good<span class="sub">recalled</span></button>
         <button class="rate-btn easy" data-r="easy">Easy<span class="sub">instant</span></button>
-        <div class="rating-hint">Swipe across, or press 1–4</div>
+        <div class="rating-hint">Swipe right/left (Good/Again), or ←/→ · 1–4</div>
       </div>
     `;
   }
-  // Shared by every rating row (verse review + vocab review): lets you
-  // swipe a finger/pointer across the four buttons and release over the
-  // one you want, instead of precisely tapping a single small target --
-  // and 1-4 keys for instant desktop rating. Neither replaces plain
-  // tapping, which still works exactly as before.
-  function wireRatingRowInteractions(row) {
-    const buttons = Array.from(row.querySelectorAll(".rate-btn"));
-    let dragging = false, moved = false, startX = 0, armedBtn = null;
-    const MOVE_THRESHOLD = 12;
-
-    function armAt(clientX) {
-      let best = null, bestDist = Infinity;
-      buttons.forEach(b => {
-        const rect = b.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const dist = Math.abs(clientX - cx);
-        if (dist < bestDist) { bestDist = dist; best = b; }
-      });
-      if (armedBtn && armedBtn !== best) armedBtn.classList.remove("swipe-armed");
-      if (best) best.classList.add("swipe-armed");
-      armedBtn = best;
+  // Shared by every rating row (verse review + vocab review). Two input
+  // paths beyond plain tapping:
+  //  - touch/mouse: swipe the row itself right (Good) or left (Again) --
+  //    exactly two directions, no need to hit a specific button.
+  //  - desktop keyboard: Left/Right arrows mirror the same two swipes;
+  //    1-4 still give precise access to all four ratings.
+  // `rate(key)` is the single call site every input path funnels through,
+  // so there is exactly one place that ever applies a rating -- no risk
+  // of a swipe's synthetic action and the browser's own trailing native
+  // click both firing for the same gesture.
+  // Generic 2-direction drag gesture, reused by both the compact rating
+  // row and the full story-card. Drags `el` itself (translate + tilt +
+  // tint), commits to onRight/onLeft once dragged past `threshold`,
+  // snaps back below it. A plain tap (no real horizontal movement) never
+  // touches these callbacks, so any nested clickable child (a button,
+  // the reveal area) keeps its native click working untouched --
+  // `wasRecentlyDragged()` lets a caller with such children double-check
+  // before treating a click as a real, independent tap.
+  function wireHorizontalSwipe(el, { onLeft, onRight, threshold = 64, maxVisual = 160, moveThreshold = 10 } = {}) {
+    let dragging = false, moved = false, startX = 0, startY = 0, deltaX = 0;
+    function applyVisual(dx) {
+      const clamped = Math.max(-maxVisual, Math.min(maxVisual, dx));
+      el.style.transform = `translateX(${clamped}px) rotate(${(clamped / 30).toFixed(2)}deg)`;
+      el.classList.toggle("swipe-right", dx > threshold);
+      el.classList.toggle("swipe-left", dx < -threshold);
     }
-    function clearArm() {
-      if (armedBtn) armedBtn.classList.remove("swipe-armed");
-      armedBtn = null;
+    function resetVisual() {
+      el.style.transform = "";
+      el.classList.remove("swipe-right", "swipe-left");
     }
-    row.addEventListener("pointerdown", (e) => {
-      dragging = true; moved = false; startX = e.clientX;
-      row.classList.add("swiping");
-      armAt(e.clientX);
+    el.addEventListener("pointerdown", (e) => {
+      dragging = true; moved = false; startX = e.clientX; startY = e.clientY; deltaX = 0;
     });
-    row.addEventListener("pointermove", (e) => {
+    el.addEventListener("pointermove", (e) => {
       if (!dragging) return;
-      if (Math.abs(e.clientX - startX) > MOVE_THRESHOLD) moved = true;
-      armAt(e.clientX);
+      const dx = e.clientX - startX, dy = e.clientY - startY;
+      if (!moved && Math.abs(dx) > moveThreshold && Math.abs(dx) > Math.abs(dy)) {
+        moved = true;
+        el.classList.add("swiping");
+      }
+      if (moved) { deltaX = dx; applyVisual(dx); }
     });
     function endDrag() {
       if (!dragging) return;
       dragging = false;
-      row.classList.remove("swiping");
-      // Only intervene for a genuine swipe (down+move+up, possibly ending
-      // over a DIFFERENT button than where the drag started -- browsers
-      // never fire a native "click" for that pointerdown/pointerup pair).
-      // A plain stationary tap (moved === false) already fires its own
-      // native click on that same button; manually clicking here too
-      // would double-apply the rating.
-      if (moved && armedBtn) armedBtn.click();
-      clearArm();
+      el.classList.remove("swiping");
+      const finalDx = deltaX, wasMoved = moved;
+      resetVisual();
+      if (wasMoved) {
+        // A real drag re-settles the pointer over whatever it started
+        // on (the whole element translates with it), which WOULD also
+        // fire a native click there -- callers check wasRecentlyDragged()
+        // before treating that trailing click as independent input.
+        if (finalDx > threshold && onRight) onRight();
+        else if (finalDx < -threshold && onLeft) onLeft();
+        setTimeout(() => { moved = false; }, 0);
+      }
     }
-    row.addEventListener("pointerup", endDrag);
-    row.addEventListener("pointercancel", () => { dragging = false; row.classList.remove("swiping"); clearArm(); });
-
+    el.addEventListener("pointerup", endDrag);
+    el.addEventListener("pointercancel", () => { dragging = false; el.classList.remove("swiping"); resetVisual(); moved = false; });
+    return { wasRecentlyDragged: () => moved };
+  }
+  // Shared by every rating row (verse review + vocab review). Two input
+  // paths beyond plain tapping:
+  //  - touch/mouse: swipe the row itself right (Good) or left (Again) --
+  //    exactly two directions, no need to hit a specific button.
+  //  - desktop keyboard: Left/Right arrows mirror the same two swipes;
+  //    1-4 still give precise access to all four ratings.
+  // `rate(key)` is the single call site every input path funnels through,
+  // so there is exactly one place that ever applies a rating -- no risk
+  // of a swipe's synthetic action and the browser's own trailing native
+  // click both firing for the same gesture.
+  function wireRatingRowInteractions(row, rate) {
+    const buttons = Array.from(row.querySelectorAll(".rate-btn"));
+    let applied = false;
+    function fire(ratingKey) {
+      if (applied) return;
+      applied = true;
+      document.removeEventListener("keydown", onKeydown);
+      rate(ratingKey);
+    }
+    const swipe = wireHorizontalSwipe(row, { onRight: () => fire("good"), onLeft: () => fire("again") });
+    buttons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (swipe.wasRecentlyDragged()) return; // tail end of a swipe gesture, already handled
+        fire(btn.dataset.r);
+      });
+    });
     function onKeydown(e) {
       const active = document.activeElement;
       if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
+      if (e.key === "ArrowRight") { e.preventDefault(); fire("good"); return; }
+      if (e.key === "ArrowLeft") { e.preventDefault(); fire("again"); return; }
       const idx = { "1": 0, "2": 1, "3": 2, "4": 3 }[e.key];
       if (idx === undefined) return;
       const btn = buttons[idx];
-      if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
+      if (btn && !btn.disabled) { e.preventDefault(); fire(btn.dataset.r); }
     }
     document.addEventListener("keydown", onKeydown);
-    // The buttons get replaced by the next render regardless, but remove
-    // this specific listener the moment any rating is actually applied
-    // (by any input method) so listeners don't pile up across a session.
-    buttons.forEach(b => b.addEventListener("click", () => document.removeEventListener("keydown", onKeydown), { once: true }));
+    // Lets an external gesture (e.g. the story-card's whole-zone swipe)
+    // that committed a rating through its own path shut this row's
+    // listeners down too, so its keydown handler can't double-apply a
+    // rating during the brief transition before the next card renders.
+    return { disable: () => { applied = true; document.removeEventListener("keydown", onKeydown); } };
   }
   function wireRatingRow(card, onDone) {
     const row = document.getElementById("ratingRow");
     row.style.display = "grid";
-    row.querySelectorAll(".rate-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        applyRating(card, btn.dataset.r);
-        saveCards();
-        session.idx++;
-        onDone ? onDone() : renderNextCard();
-      });
+    return wireRatingRowInteractions(row, (ratingKey) => {
+      applyRating(card, ratingKey);
+      saveCards();
+      session.idx++;
+      onDone ? onDone() : renderNextCard();
     });
-    wireRatingRowInteractions(row);
   }
 
   // -- mode: listen & recall --
+  // Listen & Recall as an immersive, story-style card: the recitation
+  // auto-plays and loops -- keeps repeating -- until you swipe. Swipe
+  // right ("it's fine") reveals + rates Good and moves on; swipe left
+  // ("I don't have this") reveals + rates Again and moves on. Tapping to
+  // peek early, the 4-way rating row, and keyboard shortcuts all still
+  // work exactly as before -- the loop/swipe is a faster path layered on
+  // top, not a replacement for them.
   function renderListenRecall(host, card) {
     let revealed = false;
+    let settled = false;
     host.innerHTML = `
-      <div class="review-stage">
-        <div class="mode-kicker">Listen &amp; Recall</div>
-        <div class="mode-hint">Play the recitation, try to recall it, then reveal.</div>
-        <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-        <div class="audio-row">
-          <button class="play-btn" id="playBtn">▶</button>
-        </div>
-        <div id="revealArea">
-          <button class="reveal-btn" id="revealBtn">Tap to reveal text</button>
+      <div class="review-stage story-mode">
+        <div class="story-swipe-zone" id="storySwipeZone">
+          <div class="story-bg" aria-hidden="true"></div>
+          <div class="story-swipe-hint hint-left">Again</div>
+          <div class="story-swipe-hint hint-right">Good</div>
+          <div class="story-content">
+            <div class="mode-kicker">Listen &amp; Recall</div>
+            <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
+            <div class="story-loop-indicator" id="loopIndicator"><span class="pulse-dot"></span>On loop &mdash; swipe when ready</div>
+            <div id="revealArea">
+              <button class="reveal-btn" id="revealBtn">Tap to peek</button>
+            </div>
+          </div>
         </div>
         ${ratingRowHtml()}
       </div>
     `;
-    document.getElementById("playBtn").addEventListener("click", (e) => {
-      e.currentTarget.classList.add("playing");
-      const onEnd = () => e.currentTarget.classList.remove("playing");
-      // Once revealed, highlight the word being recited in real time
-      // (real per-word timing, Alafasy only -- see ensureSegmentsLoaded)
-      // instead of plain playback with no visual sync.
-      const container = revealed ? document.querySelector("#revealArea .card-arabic") : null;
-      if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd);
-      else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd);
-    });
-    document.getElementById("revealBtn").addEventListener("click", () => {
+    const zone = document.getElementById("storySwipeZone");
+    const row = document.getElementById("ratingRow");
+
+    function revealNow() {
+      if (revealed) return;
       revealed = true;
       document.getElementById("revealArea").innerHTML = `
         <div class="card-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
         <div class="card-translation">${escapeHtml(card.translation)}</div>
       `;
       wireWordTooltips(document.getElementById("revealArea"));
-      wireRatingRow(card);
+    }
+    function loopPlay() {
+      if (settled) return;
+      const container = revealed ? document.querySelector("#revealArea .card-arabic") : null;
+      const indicator = document.getElementById("loopIndicator");
+      if (indicator) indicator.classList.add("playing");
+      const onEnd = () => {
+        if (indicator) indicator.classList.remove("playing");
+        if (settled) return;
+        setTimeout(() => { if (!settled) loopPlay(); }, 650);
+      };
+      if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd);
+      else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd);
+    }
+    loopPlay();
+
+    document.getElementById("revealBtn").addEventListener("click", revealNow);
+
+    const ratingRowCtl = wireRatingRow(card, () => { settled = true; renderNextCard(); });
+    wireHorizontalSwipe(zone, {
+      onRight: () => commit("good"),
+      onLeft: () => commit("again"),
     });
+    function commit(ratingKey) {
+      if (settled) return;
+      settled = true;
+      cancelAudio();
+      ratingRowCtl.disable();
+      row.style.pointerEvents = "none";
+      revealNow();
+      zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
+      applyRating(card, ratingKey);
+      saveCards();
+      session.idx++;
+      setTimeout(() => renderNextCard(), 480);
+    }
   }
 
   // -- mode: fade recall --
@@ -1985,15 +2061,12 @@
   function wireVocabRatingRow(card) {
     const row = document.getElementById("ratingRow");
     row.style.display = "grid";
-    row.querySelectorAll(".rate-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        applyRating(card, btn.dataset.r);
-        saveVocabCards();
-        vocabSession.idx++;
-        renderNextVocabCard();
-      });
+    wireRatingRowInteractions(row, (ratingKey) => {
+      applyRating(card, ratingKey);
+      saveVocabCards();
+      vocabSession.idx++;
+      renderNextVocabCard();
     });
-    wireRatingRowInteractions(row);
   }
 
   function vocabEligibleModes(card) {
