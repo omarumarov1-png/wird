@@ -23,6 +23,17 @@
   const CARDS_KEY = "wird-cards-v1";
   const SETTINGS_KEY = "wird-settings-v1";
   const STATS_KEY = "wird-stats-v1";
+
+  // Study-mode presets: how many NEW verses get introduced per day, and a
+  // matched review cap so due-reviews don't bottleneck behind a fixed
+  // ceiling while new intake scales up -- unlimited new cards with a
+  // small review cap would just build an uncleared backlog.
+  const STUDY_MODES = {
+    basic: { label: "Basic", newPerDay: 5, reviewCap: 20, blurb: "5 new verses a day — a steady, unhurried pace." },
+    dedicated: { label: "Dedicated", newPerDay: 10, reviewCap: 40, blurb: "10 new verses a day — for consistent, focused progress." },
+    ultimate: { label: "Ultimate", newPerDay: Infinity, reviewCap: Infinity, blurb: "No daily cap — take on as much as you can genuinely commit to reviewing." },
+  };
+  const DEFAULT_STUDY_MODE = "basic";
   const SURAH_CACHE_KEY = "wird-surah-cache-v1";
   const WORDS_API = "https://api.quran.com/api/v4";
   const WORDS_CACHE_KEY = "wird-words-cache-v1";
@@ -52,7 +63,8 @@
 
   let surahList = [];       // [{number, name, englishName, englishNameTranslation, numberOfAyahs, revelationType}]
   let cards = {};           // "surah:ayah" -> card object
-  let settings = { newPerDay: 5, reviewCap: 40 };
+  let settings = { mode: DEFAULT_STUDY_MODE };
+  function currentModeConfig() { return STUDY_MODES[settings.mode] || STUDY_MODES[DEFAULT_STUDY_MODE]; }
   let stats = { streak: 0, lastStudyDate: null, totalReviews: 0 };
   let surahCache = {};      // "surahNum" -> {ar: [...], en: [...], audio: [...]}
   let wordsCache = {};      // "surah:ayah" -> [{ar, tr, en}, ...] (word-by-word, quran.com)
@@ -82,7 +94,8 @@
   function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
   function loadAll() {
     cards = load(CARDS_KEY, {});
-    settings = Object.assign({ newPerDay: 5, reviewCap: 40 }, load(SETTINGS_KEY, {}));
+    settings = Object.assign({ mode: DEFAULT_STUDY_MODE }, load(SETTINGS_KEY, {}));
+    if (!STUDY_MODES[settings.mode]) settings.mode = DEFAULT_STUDY_MODE;
     stats = Object.assign({ streak: 0, lastStudyDate: null, totalReviews: 0 }, load(STATS_KEY, {}));
     surahCache = load(SURAH_CACHE_KEY, {});
     wordsCache = load(WORDS_CACHE_KEY, {});
@@ -383,9 +396,10 @@
     const all = Object.values(cards);
     const due = all.filter(c => c.reps > 0 && c.dueDate <= today).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
     const fresh = all.filter(c => c.reps === 0).sort((a, b) => a.addedDate.localeCompare(b.addedDate));
+    const mode = currentModeConfig();
     return {
-      due: due.slice(0, settings.reviewCap),
-      fresh: fresh.slice(0, settings.newPerDay),
+      due: due.slice(0, mode.reviewCap),
+      fresh: fresh.slice(0, mode.newPerDay),
     };
   }
 
@@ -1238,12 +1252,54 @@
     sel.addEventListener("change", () => setReciter(sel.value));
   }
 
+  // ---------- study-mode settings modal ----------
+  function fmtCap(n) { return n === Infinity ? "Unlimited" : String(n); }
+  function openSettingsModal() {
+    const overlay = document.getElementById("settingsOverlay");
+    overlay.classList.add("visible");
+    overlay.innerHTML = `
+      <div class="modal-card">
+        <div class="modal-heading">Study Mode</div>
+        <p class="modal-sub">How many new verses you take on per day. You can change this any time — it only shapes tomorrow's portion, not what's already scheduled.</p>
+        <div class="mode-cards">
+          ${Object.entries(STUDY_MODES).map(([id, m]) => `
+            <button class="mode-card ${settings.mode === id ? "selected" : ""}" data-mode="${id}">
+              <div class="mode-card-top">
+                <span class="mode-card-label">${escapeHtml(m.label)}</span>
+                <span class="mode-card-count">${fmtCap(m.newPerDay)} new/day</span>
+              </div>
+              <p class="mode-card-blurb">${escapeHtml(m.blurb)}</p>
+              <div class="mode-card-sub">Review cap: ${fmtCap(m.reviewCap)} verses/day</div>
+            </button>
+          `).join("")}
+        </div>
+        <button class="secondary-btn" id="closeSettingsBtn" style="width:100%;margin-top:6px">Close</button>
+      </div>
+    `;
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeSettingsModal(); });
+    document.getElementById("closeSettingsBtn").addEventListener("click", closeSettingsModal);
+    overlay.querySelectorAll(".mode-card").forEach(btn => {
+      btn.addEventListener("click", () => {
+        settings.mode = btn.dataset.mode;
+        saveSettings();
+        closeSettingsModal();
+        if (document.querySelector(".today-card")) renderHome();
+      });
+    });
+  }
+  function closeSettingsModal() {
+    const overlay = document.getElementById("settingsOverlay");
+    overlay.classList.remove("visible");
+    overlay.innerHTML = "";
+  }
+
   function boot() {
     loadAll();
     topnavEl.querySelectorAll(".nav-btn").forEach(btn => {
       btn.addEventListener("click", () => switchScreen(btn.dataset.screen));
     });
     document.getElementById("brandBtn").addEventListener("click", () => switchScreen("home"));
+    document.getElementById("settingsBtn").addEventListener("click", openSettingsModal);
     renderReciterSelect();
     renderHome();
   }
