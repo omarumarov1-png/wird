@@ -420,6 +420,13 @@ body {
 .weak-row-info .sub { font-size: 0.75rem; color: var(--text-muted); margin-top: 2px; }
 .weak-cta { font-size: 0.78rem; font-weight: 600; color: var(--bad); white-space: nowrap; }
 
+/* ---------- vocabulary ---------- */
+.vocab-tier-grid, .vocab-cat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.vocab-tier-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 14px; padding: 16px; text-align: left; cursor: pointer; }
+.vocab-tier-card:hover { border-color: var(--gold); }
+.vocab-tier-label { font-family: var(--font-display); font-weight: 600; font-size: 1rem; color: var(--emerald); }
+.vocab-tier-blurb { font-size: 0.78rem; color: var(--text-muted); margin-top: 5px; line-height: 1.45; }
+
 @media (max-width: 480px) {
   .rating-row { grid-template-columns: repeat(2, 1fr); }
   .stat-row { grid-template-columns: repeat(3, 1fr); }

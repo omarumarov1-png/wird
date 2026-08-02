@@ -58,6 +58,29 @@
   const JUZ_AMMA_START = 78; // verified live against api.alquran.cloud: surah 77 last ayah = juz 29, surah 78-114 = juz 30
   const JUZ_AMMA_END = 114;
 
+  // ---------- vocabulary bank ----------
+  // data/vocab-bank.json is a one-time offline computation over the ENTIRE
+  // Qur'an's real word-by-word data (api.quran.com), not invented or
+  // scraped from an unverifiable third party -- every entry's frequency
+  // count, translations, and occurrences trace back to actual text.
+  // Categories were derived by exact-word matching against the real
+  // (Saheeh International) translation text, not asserted Arabic semantic
+  // knowledge. See scratchpad/build_vocab_bank.py and
+  // build_vocab_categories.py for the full derivation + the collision bug
+  // (alif-folding merging unrelated words) caught and fixed before shipping.
+  const VOCAB_BANK_PATH = "data/vocab-bank.json";
+  const VOCAB_CARDS_KEY = "wird-vocab-cards-v1";
+  const VOCAB_TIERS = [
+    { id: "top100", label: "Top 100", from: 1, to: 100, blurb: "The most frequent words in the Qur'an — this alone covers roughly half of its running text." },
+    { id: "top300", label: "101–300", from: 101, to: 300, blurb: "The next tier of high-frequency words." },
+    { id: "top1000", label: "301–1000", from: 301, to: 1000, blurb: "Solid intermediate vocabulary." },
+    { id: "top3000", label: "1001–3000", from: 1001, to: 3000, blurb: "Broader working vocabulary." },
+    { id: "rest", label: "3001+", from: 3001, to: Infinity, blurb: "Everything else — rarer words, right down to those appearing only once." },
+  ];
+  let vocabBank = [];       // [{id, ar, tr, en:[...], n, rk, occ:[[surah,ayah],...], au, cat:[...]}]
+  let vocabById = {};       // id -> entry, built once vocabBank loads
+  let vocabCards = {};      // id -> {interval, ease, reps, dueDate, addedDate, struggleCount}
+
   const screenEl = document.getElementById("screen");
   const topnavEl = document.getElementById("topnav");
 
@@ -86,6 +109,7 @@
   let session = null;       // { queue: [card,...], idx, total, revealed, currentMode }
   let currentAudio = null;
   let sardSession = null;   // { surah, verses: [card,...], idx, stumbles: Set, playing }
+  let vocabSession = null;  // { queue: [vocabCard,...], idx, total }
 
   // ---------- persistence ----------
   function load(key, fallback) {
@@ -101,12 +125,14 @@
     surahCache = load(SURAH_CACHE_KEY, {});
     wordsCache = load(WORDS_CACHE_KEY, {});
     muraja = load(MURAJA_KEY, {});
+    vocabCards = load(VOCAB_CARDS_KEY, {});
   }
   function saveCards() { save(CARDS_KEY, cards); pushToCloud(); }
   function saveSettings() { save(SETTINGS_KEY, settings); pushToCloud(); }
   function saveStats() { save(STATS_KEY, stats); pushToCloud(); }
   function saveSurahCache() { save(SURAH_CACHE_KEY, surahCache); }
   function saveWordsCache() { save(WORDS_CACHE_KEY, wordsCache); }
+  function saveVocabCards() { save(VOCAB_CARDS_KEY, vocabCards); pushToCloud(); }
   function saveMuraja() { save(MURAJA_KEY, muraja); pushToCloud(); }
 
   // ---------- date helpers ----------
@@ -406,7 +432,7 @@
 
   async function renderHome() {
     cancelAudio();
-    session = null;
+    resetActiveSessions();
     await ensureSurahList();
     const { due, fresh } = computeQueue();
     const total = due.length + fresh.length;
@@ -492,7 +518,7 @@
 
   // ---------- library ----------
   async function renderLibrary() {
-    cancelAudio(); session = null;
+    cancelAudio(); resetActiveSessions();
     await ensureSurahList();
     const amma = surahList.filter(s => s.number >= JUZ_AMMA_START && s.number <= JUZ_AMMA_END);
     const rest = surahList.filter(s => s.number < JUZ_AMMA_START);
@@ -599,7 +625,7 @@
   let mushafViewMode = "mastery"; // "mastery" | "weak"
 
   async function renderMushaf() {
-    cancelAudio(); session = null;
+    cancelAudio(); resetActiveSessions();
     const allCards = Object.values(cards);
     if (!allCards.length) {
       screenEl.innerHTML = `
@@ -843,6 +869,15 @@
 
   function cancelAudio() {
     if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  }
+  // Called at the top of every top-level screen render so leftover state
+  // from whichever session-like flow (verse review, sard, page-listen,
+  // vocab review) the user was in doesn't leak into the next screen.
+  function resetActiveSessions() {
+    session = null;
+    sardSession = null;
+    pageListenState = null;
+    vocabSession = null;
   }
   function playAudio(url, rate, onEnd) {
     cancelAudio();
@@ -1561,12 +1596,469 @@
     });
   }
 
+  // ---------- vocabulary: data + SRS ----------
+  let vocabBankLoaded = false;
+  async function ensureVocabBank() {
+    if (vocabBankLoaded) return vocabBank;
+    const res = await fetch(VOCAB_BANK_PATH);
+    if (!res.ok) throw new Error("Failed to load vocabulary bank");
+    vocabBank = await res.json();
+    vocabById = {};
+    vocabBank.forEach(w => { vocabById[w.id] = w; });
+    vocabBankLoaded = true;
+    return vocabBank;
+  }
+  function newVocabCard(id) {
+    return { id, interval: 0, ease: 2.5, reps: 0, dueDate: todayISO(), addedDate: todayISO() };
+  }
+  function addVocabWord(id) {
+    if (vocabCards[id]) return;
+    vocabCards[id] = newVocabCard(id);
+    saveVocabCards();
+  }
+  function removeVocabWord(id) {
+    if (!vocabCards[id]) return;
+    delete vocabCards[id];
+    saveVocabCards();
+  }
+  function computeVocabQueue() {
+    const today = todayISO();
+    const all = Object.values(vocabCards);
+    const due = all.filter(c => c.reps > 0 && c.dueDate <= today).sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+    const fresh = all.filter(c => c.reps === 0).sort((a, b) => a.addedDate.localeCompare(b.addedDate));
+    const mode = currentModeConfig();
+    return { due: due.slice(0, mode.reviewCap), fresh: fresh.slice(0, mode.newPerDay) };
+  }
+
+  // ---------- vocabulary: home / browse screens ----------
+  async function renderVocabHome() {
+    cancelAudio(); resetActiveSessions();
+    await ensureVocabBank();
+    const { due, fresh } = computeVocabQueue();
+    const total = due.length + fresh.length;
+    const allVocabCards = Object.values(vocabCards);
+    const matureCt = allVocabCards.filter(c => masteryStage(c) === "mature").length;
+
+    screenEl.innerHTML = `
+      <div class="container">
+        <div class="hero">
+          <div class="hero-eyebrow">15,000+ real words, ranked by frequency</div>
+          <h1>Vocabulary</h1>
+          <p>Computed directly from the entire Qur'an's own text — the ~100 most frequent words alone cover roughly half of everything you'll ever read or hear recited.</p>
+        </div>
+        <div class="today-card">
+          ${total > 0 ? `
+            <div class="today-count">${total}</div>
+            <div class="today-label">words in today's practice</div>
+            <div class="today-breakdown">
+              <span><b>${due.length}</b> due for review</span>
+              <span><b>${fresh.length}</b> new</span>
+            </div>
+            <button class="primary-btn" id="startVocabBtn">Start Vocabulary Practice</button>
+          ` : allVocabCards.length === 0 ? `
+            <div class="empty-state">
+              <div class="glyph">ب</div>
+              <p>Browse by frequency tier or theme below and add words to start building your personal vocabulary set.</p>
+            </div>
+          ` : `
+            <div class="empty-state">
+              <div class="glyph">✓</div>
+              <p>Nothing due right now. Browse below to add more words, or come back tomorrow.</p>
+            </div>
+          `}
+        </div>
+        <div class="stat-row">
+          <div class="stat-box"><b>${allVocabCards.length}</b><span>words added</span></div>
+          <div class="stat-box"><b>${matureCt}</b><span>mature</span></div>
+          <div class="stat-box"><b>${vocabBank.length.toLocaleString()}</b><span>total in bank</span></div>
+        </div>
+        <div class="star-divider">${starSvg()}</div>
+        <div class="muraja-heading">By Frequency</div>
+        <p class="muraja-sub">The single most effective way to expand comprehension fast — highest-frequency words first.</p>
+        <div class="vocab-tier-grid" id="vocabTierGrid">
+          ${VOCAB_TIERS.map(t => `
+            <button class="vocab-tier-card" data-tier="${t.id}">
+              <div class="vocab-tier-label">${escapeHtml(t.label)}</div>
+              <div class="vocab-tier-blurb">${escapeHtml(t.blurb)}</div>
+            </button>
+          `).join("")}
+        </div>
+        <div class="star-divider">${starSvg()}</div>
+        <div class="muraja-heading">By Theme</div>
+        <p class="muraja-sub">Categories derived from real translation text, not guessed — a word can belong to more than one.</p>
+        <div class="vocab-cat-grid" id="vocabCatGrid"></div>
+      </div>
+    `;
+    renderVocabCategoryGrid();
+    const startBtn = document.getElementById("startVocabBtn");
+    if (startBtn) startBtn.addEventListener("click", startVocabReview);
+    document.querySelectorAll(".vocab-tier-card").forEach(btn => {
+      btn.addEventListener("click", () => renderVocabTierBrowser(btn.dataset.tier));
+    });
+  }
+
+  function allVocabCategories() {
+    const counts = {};
+    vocabBank.forEach(w => (w.cat || []).forEach(c => { counts[c] = (counts[c] || 0) + 1; }));
+    return counts;
+  }
+  function renderVocabCategoryGrid() {
+    const grid = document.getElementById("vocabCatGrid");
+    if (!grid) return;
+    const counts = allVocabCategories();
+    const cats = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    grid.innerHTML = cats.map(c => `
+      <button class="vocab-tier-card" data-cat="${escapeHtml(c)}">
+        <div class="vocab-tier-label">${escapeHtml(c)}</div>
+        <div class="vocab-tier-blurb">${counts[c]} words</div>
+      </button>
+    `).join("");
+    grid.querySelectorAll(".vocab-tier-card").forEach(btn => {
+      btn.addEventListener("click", () => renderVocabCategoryBrowser(btn.dataset.cat));
+    });
+  }
+
+  function vocabWordRowHtml(w) {
+    const added = !!vocabCards[w.id];
+    return `
+      <div class="ayah-row">
+        <div class="ayah-row-top">
+          <span class="ayah-num-badge">Rank ${w.rk} · seen ${w.n}×</span>
+          <button class="add-toggle ${added ? "added" : ""}" data-id="${escapeHtml(w.id)}">${added ? "Added ✓" : "Add"}</button>
+        </div>
+        <div class="ayah-arabic" dir="rtl" style="direction:rtl">${escapeHtml(w.ar)}</div>
+        <div class="ayah-translation">${escapeHtml(w.tr)} — ${w.en.map(escapeHtml).join(", ")}</div>
+      </div>
+    `;
+  }
+  function wireVocabWordRows(container) {
+    container.querySelectorAll(".add-toggle").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.id;
+        if (vocabCards[id]) removeVocabWord(id); else addVocabWord(id);
+        btn.classList.toggle("added");
+        btn.textContent = vocabCards[id] ? "Added ✓" : "Add";
+      });
+    });
+  }
+
+  async function renderVocabTierBrowser(tierId) {
+    await ensureVocabBank();
+    const tier = VOCAB_TIERS.find(t => t.id === tierId);
+    if (!tier) return renderVocabHome();
+    const words = vocabBank.filter(w => w.rk >= tier.from && w.rk <= tier.to).slice(0, 500);
+    screenEl.innerHTML = `
+      <div class="container">
+        <button class="back-btn" id="backVocabBtn">&larr; Vocabulary</button>
+        <div class="hero" style="padding-top:0">
+          <h1 style="font-size:1.5rem">${escapeHtml(tier.label)}</h1>
+          <p>${escapeHtml(tier.blurb)}${words.length >= 500 ? " Showing the first 500." : ""}</p>
+        </div>
+        <button class="primary-btn" id="addAllTierBtn" style="margin-bottom:20px">Add all shown (${words.length}) to my vocabulary</button>
+        <div class="ayah-browser">${words.map(vocabWordRowHtml).join("")}</div>
+      </div>
+    `;
+    document.getElementById("backVocabBtn").addEventListener("click", renderVocabHome);
+    document.getElementById("addAllTierBtn").addEventListener("click", () => {
+      words.forEach(w => addVocabWord(w.id));
+      renderVocabTierBrowser(tierId);
+    });
+    wireVocabWordRows(document.querySelector(".ayah-browser"));
+  }
+
+  async function renderVocabCategoryBrowser(cat) {
+    await ensureVocabBank();
+    const words = vocabBank.filter(w => (w.cat || []).includes(cat)).sort((a, b) => a.rk - b.rk).slice(0, 500);
+    screenEl.innerHTML = `
+      <div class="container">
+        <button class="back-btn" id="backVocabBtn">&larr; Vocabulary</button>
+        <div class="hero" style="padding-top:0">
+          <h1 style="font-size:1.5rem">${escapeHtml(cat)}</h1>
+          <p>${words.length} words${words.length >= 500 ? " (showing the first 500, ranked by frequency)" : ""}</p>
+        </div>
+        <button class="primary-btn" id="addAllCatBtn" style="margin-bottom:20px">Add all shown (${words.length}) to my vocabulary</button>
+        <div class="ayah-browser">${words.map(vocabWordRowHtml).join("")}</div>
+      </div>
+    `;
+    document.getElementById("backVocabBtn").addEventListener("click", renderVocabHome);
+    document.getElementById("addAllCatBtn").addEventListener("click", () => {
+      words.forEach(w => addVocabWord(w.id));
+      renderVocabCategoryBrowser(cat);
+    });
+    wireVocabWordRows(document.querySelector(".ayah-browser"));
+  }
+
+  // ---------- vocabulary: review session ----------
+  async function startVocabReview() {
+    await ensureVocabBank();
+    const { due, fresh } = computeVocabQueue();
+    const queue = [...due, ...fresh];
+    if (!queue.length) return renderVocabHome();
+    vocabSession = { queue, total: queue.length, idx: 0 };
+    renderVocabReviewChrome();
+    await renderNextVocabCard();
+  }
+  function renderVocabReviewChrome() {
+    screenEl.innerHTML = `
+      <div class="review-bar">
+        <button class="exit-btn" id="exitVocabBtn">&times;</button>
+        <div class="progress-track"><div class="progress-fill" id="vocabProgressFill" style="width:0%"></div></div>
+      </div>
+      <div id="vocabReviewHost"></div>
+    `;
+    document.getElementById("exitVocabBtn").addEventListener("click", () => { cancelAudio(); vocabSession = null; renderVocabHome(); });
+  }
+  function updateVocabProgress() {
+    const pct = vocabSession.total ? Math.round((vocabSession.idx / vocabSession.total) * 100) : 0;
+    const fill = document.getElementById("vocabProgressFill");
+    if (fill) fill.style.width = pct + "%";
+  }
+  function wireVocabRatingRow(card) {
+    const row = document.getElementById("ratingRow");
+    row.style.display = "grid";
+    row.querySelectorAll(".rate-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        applyRating(card, btn.dataset.r);
+        saveVocabCards();
+        vocabSession.idx++;
+        renderNextVocabCard();
+      });
+    });
+  }
+
+  function vocabEligibleModes(card) {
+    const stage = masteryStage(card);
+    const modes = ["flash"];
+    if (stage !== "new") { modes.push("mc-meaning"); modes.push("mc-arabic"); }
+    if (stage === "young" || stage === "mature") { modes.push("context"); modes.push("audio-rec"); }
+    return modes;
+  }
+  function pickVocabMode(card, word) {
+    const modes = vocabEligibleModes(card);
+    let mode = modes[Math.floor(Math.random() * modes.length)];
+    if (mode === "context" && (!word.occ || !word.occ.length)) mode = "mc-meaning";
+    return mode;
+  }
+
+  async function renderNextVocabCard() {
+    if (vocabSession.idx >= vocabSession.total) return renderVocabSessionComplete();
+    updateVocabProgress();
+    const card = vocabSession.queue[vocabSession.idx];
+    const word = vocabById[card.id];
+    const host = document.getElementById("vocabReviewHost");
+    if (!host) return;
+    if (!word) { vocabSession.idx++; return renderNextVocabCard(); }
+    const mode = pickVocabMode(card, word);
+    if (mode === "flash") return renderVocabFlash(host, card, word);
+    if (mode === "mc-meaning") return renderVocabMcMeaning(host, card, word);
+    if (mode === "mc-arabic") return renderVocabMcArabic(host, card, word);
+    if (mode === "context") return renderVocabContext(host, card, word);
+    if (mode === "audio-rec") return renderVocabAudioRec(host, card, word);
+    return renderVocabFlash(host, card, word);
+  }
+
+  function vocabPlayBtnHtml(id) { return `<div class="audio-row"><button class="play-btn" id="vocabPlayBtn">▶</button></div>`; }
+  function wireVocabPlay(word) {
+    const btn = document.getElementById("vocabPlayBtn");
+    if (!btn) return;
+    btn.addEventListener("click", (e) => {
+      e.currentTarget.classList.add("playing");
+      const url = word.au ? `https://audio.qurancdn.com/${word.au}` : null;
+      if (url) playAudio(url, 1, () => e.currentTarget.classList.remove("playing"));
+      else e.currentTarget.classList.remove("playing");
+    });
+  }
+
+  // -- vocab mode: flashcard --
+  function renderVocabFlash(host, card, word) {
+    host.innerHTML = `
+      <div class="review-stage">
+        <div class="mode-kicker">Flashcard</div>
+        <div class="mode-hint">Recall the meaning, then reveal to check.</div>
+        <div class="ref-badge">Rank ${word.rk} · seen ${word.n}×</div>
+        <div class="card-arabic-box"><div class="card-arabic" dir="rtl">${escapeHtml(word.ar)}</div></div>
+        ${vocabPlayBtnHtml()}
+        <div id="vocabRevealArea">
+          <button class="reveal-btn" id="vocabRevealBtn">Tap to reveal meaning</button>
+        </div>
+        ${ratingRowHtml()}
+      </div>
+    `;
+    wireVocabPlay(word);
+    document.getElementById("vocabRevealBtn").addEventListener("click", () => {
+      document.getElementById("vocabRevealArea").innerHTML = `
+        <div class="card-translation" style="font-size:1.05rem;font-weight:600;color:var(--text)">${escapeHtml(word.tr)}</div>
+        <div class="card-translation">${word.en.map(escapeHtml).join(" · ")}</div>
+      `;
+      wireVocabRatingRow(card);
+    });
+  }
+
+  // -- vocab mode: multiple choice, Arabic -> meaning --
+  function renderVocabMcMeaning(host, card, word) {
+    const others = sample(vocabBank.filter(w => w.id !== word.id), 3);
+    const options = shuffled([word, ...others]);
+    host.innerHTML = `
+      <div class="review-stage">
+        <div class="mode-kicker">Word Meaning</div>
+        <div class="mode-hint">What does this word mean?</div>
+        <div class="card-arabic-box"><div class="card-arabic" dir="rtl">${escapeHtml(word.ar)}</div></div>
+        ${vocabPlayBtnHtml()}
+        <div class="options" id="vocabMcOptions">
+          ${options.map((w, i) => `<button class="option" data-i="${i}">${escapeHtml(w.en[0] || w.tr)}</button>`).join("")}
+        </div>
+        <div id="vocabMcFeedback"></div>
+        ${ratingRowHtml()}
+      </div>
+    `;
+    wireVocabPlay(word);
+    let answered = false;
+    document.querySelectorAll("#vocabMcOptions .option").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (answered) return;
+        answered = true;
+        const correct = options[Number(btn.dataset.i)].id === word.id;
+        document.querySelectorAll("#vocabMcOptions .option").forEach(b => b.disabled = true);
+        btn.classList.add(correct ? "correct" : "incorrect");
+        if (!correct) document.querySelectorAll("#vocabMcOptions .option").forEach((b, i) => { if (options[i].id === word.id) b.classList.add("correct"); });
+        document.getElementById("vocabMcFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : escapeHtml(word.tr) + " = " + escapeHtml(word.en[0])}</div>`;
+        wireVocabRatingRow(card);
+      });
+    });
+  }
+
+  // -- vocab mode: multiple choice, meaning -> Arabic --
+  function renderVocabMcArabic(host, card, word) {
+    const others = sample(vocabBank.filter(w => w.id !== word.id), 3);
+    const options = shuffled([word, ...others]);
+    host.innerHTML = `
+      <div class="review-stage">
+        <div class="mode-kicker">Find The Word</div>
+        <div class="mode-hint">Which word means "${escapeHtml(word.en[0])}"?</div>
+        <div class="options" id="vocabMcOptions2">
+          ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
+        </div>
+        <div id="vocabMcFeedback2"></div>
+        ${ratingRowHtml()}
+      </div>
+    `;
+    let answered = false;
+    document.querySelectorAll("#vocabMcOptions2 .option").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (answered) return;
+        answered = true;
+        const correct = options[Number(btn.dataset.i)].id === word.id;
+        document.querySelectorAll("#vocabMcOptions2 .option").forEach(b => b.disabled = true);
+        btn.classList.add(correct ? "correct" : "incorrect");
+        if (!correct) document.querySelectorAll("#vocabMcOptions2 .option").forEach((b, i) => { if (options[i].id === word.id) b.classList.add("correct"); });
+        document.getElementById("vocabMcFeedback2").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : "That was " + escapeHtml(word.ar)}</div>`;
+        wireVocabRatingRow(card);
+      });
+    });
+  }
+
+  // -- vocab mode: word in context (real ayah, real occurrence) --
+  async function renderVocabContext(host, card, word) {
+    const [surahNum, ayahNum] = word.occ[Math.floor(Math.random() * word.occ.length)];
+    let ayahData;
+    try {
+      const surahData = await ensureSurahLoaded(surahNum);
+      ayahData = surahData.ayahs.find(a => a.numberInSurah === ayahNum);
+    } catch (e) { /* fall through */ }
+    if (!ayahData) return renderVocabMcMeaning(host, card, word);
+    const meta = surahList.find(s => s.number === surahNum);
+
+    const others = sample(vocabBank.filter(w => w.id !== word.id), 3);
+    const options = shuffled([word, ...others]);
+    host.innerHTML = `
+      <div class="review-stage">
+        <div class="mode-kicker">In Context</div>
+        <div class="mode-hint">This real ayah contains the word below. What does it mean?</div>
+        <div class="ref-badge">${meta ? escapeHtml(meta.englishName) : "Surah " + surahNum} ${ayahNum}</div>
+        <div class="card-arabic-box"><div class="card-arabic" style="font-size:1.5rem">${escapeHtml(ayahData.text)}</div></div>
+        <div class="card-translation">${escapeHtml(ayahData.translation)}</div>
+        <div class="chain-context" style="margin-top:14px">
+          <div class="label">Find this word above</div>
+          <div class="arabic-frag" dir="rtl">${escapeHtml(word.ar)}</div>
+        </div>
+        <div class="options" id="vocabCtxOptions">
+          ${options.map((w, i) => `<button class="option" data-i="${i}">${escapeHtml(w.en[0] || w.tr)}</button>`).join("")}
+        </div>
+        <div id="vocabCtxFeedback"></div>
+        ${ratingRowHtml()}
+      </div>
+    `;
+    let answered = false;
+    document.querySelectorAll("#vocabCtxOptions .option").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (answered) return;
+        answered = true;
+        const correct = options[Number(btn.dataset.i)].id === word.id;
+        document.querySelectorAll("#vocabCtxOptions .option").forEach(b => b.disabled = true);
+        btn.classList.add(correct ? "correct" : "incorrect");
+        if (!correct) document.querySelectorAll("#vocabCtxOptions .option").forEach((b, i) => { if (options[i].id === word.id) b.classList.add("correct"); });
+        document.getElementById("vocabCtxFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : escapeHtml(word.tr) + " = " + escapeHtml(word.en[0])}</div>`;
+        wireVocabRatingRow(card);
+      });
+    });
+  }
+
+  // -- vocab mode: audio recognition --
+  function renderVocabAudioRec(host, card, word) {
+    if (!word.au) return renderVocabMcMeaning(host, card, word);
+    const others = sample(vocabBank.filter(w => w.id !== word.id), 3);
+    const options = shuffled([word, ...others]);
+    host.innerHTML = `
+      <div class="review-stage">
+        <div class="mode-kicker">Listen &amp; Identify</div>
+        <div class="mode-hint">Play the word, then pick what you heard.</div>
+        ${vocabPlayBtnHtml()}
+        <div class="options" id="vocabAudioOptions">
+          ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
+        </div>
+        <div id="vocabAudioFeedback"></div>
+        ${ratingRowHtml()}
+      </div>
+    `;
+    wireVocabPlay(word);
+    document.getElementById("vocabPlayBtn").click();
+    let answered = false;
+    document.querySelectorAll("#vocabAudioOptions .option").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (answered) return;
+        answered = true;
+        const correct = options[Number(btn.dataset.i)].id === word.id;
+        document.querySelectorAll("#vocabAudioOptions .option").forEach(b => b.disabled = true);
+        btn.classList.add(correct ? "correct" : "incorrect");
+        if (!correct) document.querySelectorAll("#vocabAudioOptions .option").forEach((b, i) => { if (options[i].id === word.id) b.classList.add("correct"); });
+        document.getElementById("vocabAudioFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : "That was " + escapeHtml(word.ar) + " (" + escapeHtml(word.tr) + ")"}</div>`;
+        wireVocabRatingRow(card);
+      });
+    });
+  }
+
+  function renderVocabSessionComplete() {
+    cancelAudio();
+    screenEl.innerHTML = `
+      <div class="container">
+        <div class="complete-screen">
+          <div class="complete-emoji">ب</div>
+          <h2>Vocabulary practice complete</h2>
+          <p>Come back tomorrow for what's next due, or add more words from the Vocabulary tab.</p>
+          <button class="primary-btn" id="backVocabBtn2" style="max-width:280px;margin:0 auto">Back to Vocabulary</button>
+        </div>
+      </div>
+    `;
+    document.getElementById("backVocabBtn2").addEventListener("click", renderVocabHome);
+  }
+
   // ---------- nav ----------
   function switchScreen(name) {
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.screen === name));
     if (name === "home") renderHome();
     else if (name === "library") renderLibrary();
     else if (name === "mushaf") renderMushaf();
+    else if (name === "vocab") renderVocabHome();
   }
 
   function renderReciterSelect() {
@@ -1624,7 +2116,7 @@
   // wordsCache are pure performance caches, always re-derivable from the
   // same public APIs, so syncing them would just waste Firestore writes.
   function buildProgressPayload() {
-    return { cards, muraja, stats, settings, reciter: currentReciter };
+    return { cards, muraja, stats, settings, reciter: currentReciter, vocabCards };
   }
 
   // Merge, not overwrite: this app's whole reason for syncing is that a
@@ -1658,6 +2150,7 @@
   function applyProgressPayload(remote) {
     if (!remote) return;
     cards = mergeCards(cards, remote.cards || {});
+    vocabCards = mergeCards(vocabCards, remote.vocabCards || {});
     muraja = mergeMuraja(muraja, remote.muraja || {});
     if (remote.stats) {
       if ((remote.stats.lastStudyDate || "") >= (stats.lastStudyDate || "")) {
@@ -1671,6 +2164,7 @@
     if (remote.settings && STUDY_MODES[remote.settings.mode]) settings = Object.assign({}, settings, remote.settings);
     if (remote.reciter && RECITERS[remote.reciter]) currentReciter = remote.reciter;
     save(CARDS_KEY, cards);
+    save(VOCAB_CARDS_KEY, vocabCards);
     save(MURAJA_KEY, muraja);
     save(STATS_KEY, stats);
     save(SETTINGS_KEY, settings);
