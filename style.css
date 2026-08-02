@@ -337,8 +337,9 @@ body {
 .reveal-btn { display: block; margin: 0 auto 20px; background: none; border: 1.5px dashed var(--border); color: var(--text-muted); border-radius: 12px; padding: 10px 20px; cursor: pointer; font-size: 0.85rem; }
 .reveal-btn:hover { border-color: var(--emerald); color: var(--emerald); }
 
-.rating-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 24px; }
-.rate-btn { border: 1.5px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; color: var(--text); text-align: center; }
+.rating-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 24px; touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.rating-row.swiping { touch-action: none; }
+.rate-btn { border: 1.5px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; color: var(--text); text-align: center; transition: transform 0.08s ease, background 0.08s ease; }
 .rate-btn .sub { display: block; font-size: 0.68rem; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
 .rate-btn.again { border-color: var(--bad); color: var(--bad); }
 .rate-btn.again:hover { background: var(--bad-soft); }
@@ -346,6 +347,12 @@ body {
 .rate-btn.good { border-color: var(--good); color: var(--good); }
 .rate-btn.good:hover { background: var(--good-soft); }
 .rate-btn.easy:hover { background: var(--emerald-soft); border-color: var(--emerald); }
+.rate-btn.swipe-armed { transform: scale(1.08); box-shadow: 0 3px 12px rgba(0,0,0,0.15); }
+.rate-btn.again.swipe-armed { background: var(--bad-soft); }
+.rate-btn.hard.swipe-armed { background: var(--gold-soft); border-color: var(--gold); }
+.rate-btn.good.swipe-armed { background: var(--good-soft); }
+.rate-btn.easy.swipe-armed { background: var(--emerald-soft); border-color: var(--emerald); }
+.rating-hint { grid-column: 1 / -1; text-align: center; font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
 
 /* chain test */
 .chain-context { background: var(--surface-2); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; text-align: center; }

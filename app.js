@@ -1066,8 +1066,75 @@
         <button class="rate-btn hard" data-r="hard">Hard<span class="sub">struggled</span></button>
         <button class="rate-btn good" data-r="good">Good<span class="sub">recalled</span></button>
         <button class="rate-btn easy" data-r="easy">Easy<span class="sub">instant</span></button>
+        <div class="rating-hint">Swipe across, or press 1–4</div>
       </div>
     `;
+  }
+  // Shared by every rating row (verse review + vocab review): lets you
+  // swipe a finger/pointer across the four buttons and release over the
+  // one you want, instead of precisely tapping a single small target --
+  // and 1-4 keys for instant desktop rating. Neither replaces plain
+  // tapping, which still works exactly as before.
+  function wireRatingRowInteractions(row) {
+    const buttons = Array.from(row.querySelectorAll(".rate-btn"));
+    let dragging = false, moved = false, startX = 0, armedBtn = null;
+    const MOVE_THRESHOLD = 12;
+
+    function armAt(clientX) {
+      let best = null, bestDist = Infinity;
+      buttons.forEach(b => {
+        const rect = b.getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const dist = Math.abs(clientX - cx);
+        if (dist < bestDist) { bestDist = dist; best = b; }
+      });
+      if (armedBtn && armedBtn !== best) armedBtn.classList.remove("swipe-armed");
+      if (best) best.classList.add("swipe-armed");
+      armedBtn = best;
+    }
+    function clearArm() {
+      if (armedBtn) armedBtn.classList.remove("swipe-armed");
+      armedBtn = null;
+    }
+    row.addEventListener("pointerdown", (e) => {
+      dragging = true; moved = false; startX = e.clientX;
+      row.classList.add("swiping");
+      armAt(e.clientX);
+    });
+    row.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      if (Math.abs(e.clientX - startX) > MOVE_THRESHOLD) moved = true;
+      armAt(e.clientX);
+    });
+    function endDrag() {
+      if (!dragging) return;
+      dragging = false;
+      row.classList.remove("swiping");
+      // Only intervene for a genuine swipe (down+move+up, possibly ending
+      // over a DIFFERENT button than where the drag started -- browsers
+      // never fire a native "click" for that pointerdown/pointerup pair).
+      // A plain stationary tap (moved === false) already fires its own
+      // native click on that same button; manually clicking here too
+      // would double-apply the rating.
+      if (moved && armedBtn) armedBtn.click();
+      clearArm();
+    }
+    row.addEventListener("pointerup", endDrag);
+    row.addEventListener("pointercancel", () => { dragging = false; row.classList.remove("swiping"); clearArm(); });
+
+    function onKeydown(e) {
+      const active = document.activeElement;
+      if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
+      const idx = { "1": 0, "2": 1, "3": 2, "4": 3 }[e.key];
+      if (idx === undefined) return;
+      const btn = buttons[idx];
+      if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
+    }
+    document.addEventListener("keydown", onKeydown);
+    // The buttons get replaced by the next render regardless, but remove
+    // this specific listener the moment any rating is actually applied
+    // (by any input method) so listeners don't pile up across a session.
+    buttons.forEach(b => b.addEventListener("click", () => document.removeEventListener("keydown", onKeydown), { once: true }));
   }
   function wireRatingRow(card, onDone) {
     const row = document.getElementById("ratingRow");
@@ -1080,6 +1147,7 @@
         onDone ? onDone() : renderNextCard();
       });
     });
+    wireRatingRowInteractions(row);
   }
 
   // -- mode: listen & recall --
@@ -1925,6 +1993,7 @@
         renderNextVocabCard();
       });
     });
+    wireRatingRowInteractions(row);
   }
 
   function vocabEligibleModes(card) {
