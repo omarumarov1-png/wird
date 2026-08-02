@@ -299,6 +299,7 @@ body {
   transition: background 0.12s ease;
 }
 .word-tap:hover, .word-tap:active { background: var(--gold-soft); }
+.word-tap.word-playing { background: var(--emerald); color: #fff; transition: background 0.08s ease; }
 .word-tooltip {
   position: absolute;
   z-index: 100;

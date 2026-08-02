@@ -37,6 +37,13 @@
   const SURAH_CACHE_KEY = "wird-surah-cache-v1";
   const WORDS_API = "https://api.quran.com/api/v4";
   const WORDS_CACHE_KEY = "wird-words-cache-v1";
+  // Real per-word timing, only available for reciter id 7 (Alafasy) via
+  // quran.com's own segments endpoint -- verified live (format:
+  // [wordPosition, startMs, endMs], absolute within the full chapter
+  // file). Ghamdi has no equivalent data anywhere I could verify, so
+  // highlighting is honestly Alafasy-only rather than faked.
+  const SEGMENTS_RECITER_ID = 7;
+  const SEGMENTS_CACHE_KEY = "wird-segments-cache-v1";
   const MURAJA_KEY = "wird-muraja-v1";
 
   // Sard fluency ratings and how each one reshapes that surah's next
@@ -91,6 +98,7 @@
   let stats = { streak: 0, lastStudyDate: null, totalReviews: 0 };
   let surahCache = {};      // "surahNum" -> {ar: [...], en: [...], audio: [...]}
   let wordsCache = {};      // "surah:ayah" -> [{ar, tr, en}, ...] (word-by-word, quran.com)
+  let segmentsCache = {};   // "surahNum" -> { ayahNum: [[wordPos, startMsRelative, endMsRelative], ...] }
   let muraja = {};          // "surahNum" -> {lastFullReviewDate, cycleDays, lastRating}
   let currentReciter = localStorage.getItem(RECITER_KEY) || "alafasy";
 
@@ -124,6 +132,7 @@
     stats = Object.assign({ streak: 0, lastStudyDate: null, totalReviews: 0 }, load(STATS_KEY, {}));
     surahCache = load(SURAH_CACHE_KEY, {});
     wordsCache = load(WORDS_CACHE_KEY, {});
+    segmentsCache = load(SEGMENTS_CACHE_KEY, {});
     muraja = load(MURAJA_KEY, {});
     vocabCards = load(VOCAB_CARDS_KEY, {});
   }
@@ -132,6 +141,7 @@
   function saveStats() { save(STATS_KEY, stats); pushToCloud(); }
   function saveSurahCache() { save(SURAH_CACHE_KEY, surahCache); }
   function saveWordsCache() { save(WORDS_CACHE_KEY, wordsCache); }
+  function saveSegmentsCache() { save(SEGMENTS_CACHE_KEY, segmentsCache); }
   function saveVocabCards() { save(VOCAB_CARDS_KEY, vocabCards); pushToCloud(); }
   function saveMuraja() { save(MURAJA_KEY, muraja); pushToCloud(); }
 
@@ -259,12 +269,50 @@
     return wordsInFlight[key];
   }
 
+  const segmentsInFlight = {};
+  async function ensureSegmentsLoaded(surahNum) {
+    if (currentReciter !== "alafasy") return null; // no verified timing source for other reciters
+    const key = String(surahNum);
+    if (segmentsCache[key]) return segmentsCache[key];
+    if (segmentsInFlight[key]) return segmentsInFlight[key];
+    segmentsInFlight[key] = (async () => {
+      try {
+        const data = await fetchJson(`${WORDS_API}/chapter_recitations/${SEGMENTS_RECITER_ID}/${surahNum}?segments=true`);
+        const byAyah = {};
+        ((data.audio_file && data.audio_file.timestamps) || []).forEach(t => {
+          const ayahNum = Number(t.verse_key.split(":")[1]);
+          const from = t.timestamp_from || 0;
+          // Segments are absolute within the full chapter file; rebase to
+          // ayah-relative so they line up with this app's per-ayah audio
+          // files (everyayah.com), not the single giant chapter file the
+          // API itself points to. Clamp negatives -- real-world boundary
+          // rounding between verses can put a segment start a few ms
+          // before its verse's own timestamp_from.
+          byAyah[ayahNum] = (t.segments || []).map(([pos, start, end]) => [pos, Math.max(0, start - from), Math.max(0, end - from)]);
+        });
+        segmentsCache[key] = byAyah;
+        saveSegmentsCache();
+        return byAyah;
+      } catch (e) {
+        return null; // silent -- falls back to plain (non-highlighted) playback
+      } finally {
+        delete segmentsInFlight[key];
+      }
+    })();
+    return segmentsInFlight[key];
+  }
+
   function arabicHtmlRaw(surah, ayah, fallbackText) {
     const bySurah = wordsCache[String(surah)];
     const words = bySurah && bySurah[ayah];
     if (!words || !words.length) return escapeHtml(fallbackText);
-    return words.map(w =>
-      `<span class="word-tap" data-tr="${escapeHtml(w.tr)}" data-en="${escapeHtml(w.en)}">${escapeHtml(w.ar)}</span>`
+    // data-pos (1-indexed) lines up with real-time word highlighting during
+    // playback -- both this list and the timing segments come from the
+    // same quran.com per-ayah word ordering (real recited words only,
+    // excluding the ayah-number mushaf ornament), so position N here is
+    // position N in the segment data.
+    return words.map((w, i) =>
+      `<span class="word-tap" data-pos="${i + 1}" data-tr="${escapeHtml(w.tr)}" data-en="${escapeHtml(w.en)}">${escapeHtml(w.ar)}</span>`
     ).join(" ");
   }
   function arabicHtmlFor(card) { return arabicHtmlRaw(card.surah, card.ayah, card.text); }
@@ -724,13 +772,18 @@
   // in the Mushaf grid (either view) opens straight into this.
   let pageListenState = null; // { page, verses, idx, playing }
 
-  function renderPageListen(pageNum) {
+  async function renderPageListen(pageNum) {
     const verses = Object.values(cards)
       .filter(c => c.page === pageNum)
       .sort((a, b) => a.surah - b.surah || a.ayah - b.ayah);
     if (!verses.length) return renderMushaf();
     cancelAudio();
     pageListenState = { page: pageNum, verses, idx: 0, playing: false };
+    // Prefetch word data (for tap/highlight spans) and real timing
+    // segments (for the highlight itself) up front, rather than relying
+    // on them already being cached from an earlier Library visit.
+    const surahs = [...new Set(verses.map(v => v.surah))];
+    await Promise.all(surahs.flatMap(s => [ensureWordsLoaded(s), ensureSegmentsLoaded(s)]));
     drawPageListen();
   }
 
@@ -805,7 +858,8 @@
   function playCurrentPageListenVerse() {
     if (!pageListenState || !pageListenState.playing) return;
     const v = pageListenState.verses[pageListenState.idx];
-    playAudio(audioUrlFor(v.surah, v.ayah), 1, () => {
+    const container = document.querySelector(".listen-line.current .listen-line-arabic");
+    playAudioWithHighlight(v.surah, v.ayah, container, () => {
       if (!pageListenState || !pageListenState.playing) return;
       if (pageListenState.idx >= pageListenState.verses.length - 1) {
         pageListenState.playing = false;
@@ -843,10 +897,11 @@
     if (!queue.length) return renderHome();
     updateStreak();
     session = { queue, total: queue.length, idx: 0 };
-    // Prefetch word-by-word data for every surah in today's queue so
-    // tap-for-transliteration is ready immediately, not only after a
-    // separate Library visit -- fire in parallel, don't block the render.
-    [...new Set(queue.map(c => c.surah))].forEach(s => ensureWordsLoaded(s));
+    // Prefetch word-by-word data (tap-for-transliteration) and real
+    // per-word timing (highlight-while-listening) for every surah in
+    // today's queue, so both are ready immediately rather than only after
+    // a separate Library visit -- fire in parallel, don't block the render.
+    [...new Set(queue.map(c => c.surah))].forEach(s => { ensureWordsLoaded(s); ensureSegmentsLoaded(s); });
     renderReviewChrome();
     await renderNextCard();
   }
@@ -886,6 +941,44 @@
     currentAudio = audio;
     audio.addEventListener("ended", () => { if (onEnd) onEnd(); }, { once: true });
     audio.play().catch(() => { if (onEnd) onEnd(); });
+    return audio;
+  }
+
+  // Plays a verse's audio while highlighting the word currently being
+  // recited, using real per-word timing (see ensureSegmentsLoaded) rather
+  // than a guessed/animated approximation. Only lights up when both a
+  // timing source exists (Alafasy only) AND the container actually has
+  // data-pos word spans (i.e. word data was loaded) -- silently falls
+  // back to plain playback otherwise, same graceful-degradation spirit
+  // as every other optional-data feature in this app.
+  async function playAudioWithHighlight(surah, ayah, containerEl, onEnd) {
+    const segByAyah = await ensureSegmentsLoaded(surah).catch(() => null);
+    const segments = segByAyah && segByAyah[ayah];
+    cancelAudio();
+    const audio = new Audio(audioUrlFor(surah, ayah));
+    currentAudio = audio;
+    let rafId = null;
+    function clearHighlight() {
+      if (containerEl) containerEl.querySelectorAll(".word-playing").forEach(el => el.classList.remove("word-playing"));
+    }
+    function tick() {
+      if (!currentAudio || currentAudio !== audio) { clearHighlight(); return; } // superseded/paused externally (e.g. cancelAudio() from a manual pause) -- clean up our own highlight rather than leaving it stuck
+      if (segments && containerEl) {
+        const ms = audio.currentTime * 1000;
+        const seg = segments.find(([, start, end]) => ms >= start && ms < end);
+        clearHighlight();
+        if (seg) {
+          const el = containerEl.querySelector(`[data-pos="${seg[0]}"]`);
+          if (el) el.classList.add("word-playing");
+        }
+      }
+      rafId = requestAnimationFrame(tick);
+    }
+    audio.addEventListener("play", () => { if (segments) rafId = requestAnimationFrame(tick); });
+    const settle = () => { if (rafId) cancelAnimationFrame(rafId); clearHighlight(); if (onEnd) onEnd(); };
+    audio.addEventListener("ended", settle, { once: true });
+    audio.addEventListener("error", settle, { once: true });
+    audio.play().catch(settle);
     return audio;
   }
 
@@ -991,6 +1084,7 @@
 
   // -- mode: listen & recall --
   function renderListenRecall(host, card) {
+    let revealed = false;
     host.innerHTML = `
       <div class="review-stage">
         <div class="mode-kicker">Listen &amp; Recall</div>
@@ -1007,9 +1101,16 @@
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
       e.currentTarget.classList.add("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+      const onEnd = () => e.currentTarget.classList.remove("playing");
+      // Once revealed, highlight the word being recited in real time
+      // (real per-word timing, Alafasy only -- see ensureSegmentsLoaded)
+      // instead of plain playback with no visual sync.
+      const container = revealed ? document.querySelector("#revealArea .card-arabic") : null;
+      if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd);
+      else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd);
     });
     document.getElementById("revealBtn").addEventListener("click", () => {
+      revealed = true;
       document.getElementById("revealArea").innerHTML = `
         <div class="card-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
         <div class="card-translation">${escapeHtml(card.translation)}</div>
