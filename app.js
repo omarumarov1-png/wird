@@ -581,6 +581,8 @@
   }
 
   // ---------- mushaf page view ----------
+  let mushafViewMode = "mastery"; // "mastery" | "weak"
+
   async function renderMushaf() {
     cancelAudio(); session = null;
     const allCards = Object.values(cards);
@@ -593,32 +595,91 @@
       `;
       return;
     }
+    await ensureSurahList();
     const pages = {};
     allCards.forEach(c => { (pages[c.page] = pages[c.page] || []).push(c); });
     const pageNums = Object.keys(pages).map(Number).sort((a, b) => a - b);
+    const maxStruggle = Math.max(1, ...allCards.map(c => c.struggleCount || 0));
+
     const cells = pageNums.map(p => {
       const cs = pages[p];
-      const matureCt = cs.filter(c => masteryStage(c) === "mature").length;
-      const ratio = matureCt / cs.length;
-      const bg = ratio > 0.66 ? "var(--good-soft)" : ratio > 0.33 ? "var(--gold-soft)" : "var(--surface-2)";
-      const col = ratio > 0.66 ? "var(--good)" : ratio > 0.33 ? "var(--gold)" : "var(--text-muted)";
+      let bg, col;
+      if (mushafViewMode === "weak") {
+        const pageStruggle = cs.reduce((sum, c) => sum + (c.struggleCount || 0), 0);
+        const ratio = pageStruggle / maxStruggle;
+        bg = pageStruggle === 0 ? "var(--surface-2)" : ratio > 0.6 ? "var(--bad-soft)" : "var(--gold-soft)";
+        col = pageStruggle === 0 ? "var(--text-muted)" : ratio > 0.6 ? "var(--bad)" : "var(--gold)";
+      } else {
+        const matureCt = cs.filter(c => masteryStage(c) === "mature").length;
+        const ratio = matureCt / cs.length;
+        bg = ratio > 0.66 ? "var(--good-soft)" : ratio > 0.33 ? "var(--gold-soft)" : "var(--surface-2)";
+        col = ratio > 0.66 ? "var(--good)" : ratio > 0.33 ? "var(--gold)" : "var(--text-muted)";
+      }
       return `<div class="mushaf-page-cell has-verses" style="background:${bg};color:${col};border-color:${col}" title="${cs.length} verse(s) on page ${p}">${p}</div>`;
     }).join("");
+
+    const topStruggles = allCards
+      .filter(c => (c.struggleCount || 0) > 0)
+      .sort((a, b) => (b.struggleCount || 0) - (a.struggleCount || 0))
+      .slice(0, 8);
 
     screenEl.innerHTML = `
       <div class="container">
         <div class="hero" style="padding-top:0">
           <h1 style="font-size:1.6rem">Mushaf</h1>
-          <p>Each square is a real mushaf page containing verses you're memorizing. Color shows how mature that page is — this is the same spatial "where on the page" memory ḥuffāẓ rely on.</p>
+          <p>${mushafViewMode === "weak"
+            ? "Where you've actually struggled — built from your own Again/Hard ratings and sard stumble taps, not guessed."
+            : 'Each square is a real mushaf page containing verses you\'re memorizing. Color shows how mature that page is — the same spatial "where on the page" memory ḥuffāẓ rely on.'}</p>
+        </div>
+        <div class="mushaf-toggle">
+          <button class="mushaf-toggle-btn ${mushafViewMode === "mastery" ? "active" : ""}" data-mode="mastery">Mastery</button>
+          <button class="mushaf-toggle-btn ${mushafViewMode === "weak" ? "active" : ""}" data-mode="weak">Weak Points</button>
         </div>
         <div class="mushaf-grid">${cells}</div>
-        <div class="mushaf-legend">
-          <span><span class="legend-swatch" style="background:var(--surface-2)"></span>New/learning</span>
-          <span><span class="legend-swatch" style="background:var(--gold-soft)"></span>Young</span>
-          <span><span class="legend-swatch" style="background:var(--good-soft)"></span>Mature</span>
-        </div>
+        ${mushafViewMode === "weak" ? `
+          <div class="mushaf-legend">
+            <span><span class="legend-swatch" style="background:var(--surface-2)"></span>No struggle logged</span>
+            <span><span class="legend-swatch" style="background:var(--gold-soft)"></span>Some struggle</span>
+            <span><span class="legend-swatch" style="background:var(--bad-soft)"></span>Frequent struggle</span>
+          </div>
+          ${topStruggles.length ? `
+            <div class="weak-list">
+              <div class="weak-list-heading">Your top struggle verses</div>
+              ${topStruggles.map(c => `
+                <button class="weak-row" data-key="${cardKey(c.surah, c.ayah)}">
+                  <div class="weak-row-info">
+                    <div class="en">${escapeHtml(refBadge(c))}</div>
+                    <div class="sub">${c.struggleCount} struggle${c.struggleCount === 1 ? "" : "s"} logged</div>
+                  </div>
+                  <div class="weak-cta">Drill now →</div>
+                </button>
+              `).join("")}
+            </div>
+          ` : `<p style="text-align:center;color:var(--text-muted);font-size:0.85rem;margin-top:16px">No struggles logged yet — that's a good thing.</p>`}
+        ` : `
+          <div class="mushaf-legend">
+            <span><span class="legend-swatch" style="background:var(--surface-2)"></span>New/learning</span>
+            <span><span class="legend-swatch" style="background:var(--gold-soft)"></span>Young</span>
+            <span><span class="legend-swatch" style="background:var(--good-soft)"></span>Mature</span>
+          </div>
+        `}
       </div>
     `;
+    document.querySelectorAll(".mushaf-toggle-btn").forEach(btn => {
+      btn.addEventListener("click", () => { mushafViewMode = btn.dataset.mode; renderMushaf(); });
+    });
+    document.querySelectorAll(".weak-row").forEach(btn => {
+      btn.addEventListener("click", () => startDrill(btn.dataset.key));
+    });
+  }
+
+  function startDrill(key) {
+    const card = cards[key];
+    if (!card) return;
+    cancelAudio();
+    session = { queue: [card], total: 1, idx: 0, isDrill: true };
+    renderReviewChrome();
+    renderNextCard();
   }
 
   // ---------- review session ----------
@@ -1005,17 +1066,20 @@
 
   function renderSessionComplete() {
     cancelAudio();
+    const isDrill = session && session.isDrill;
     screenEl.innerHTML = `
       <div class="container">
         <div class="complete-screen">
           <div class="complete-emoji">﴾ ﴿</div>
-          <h2>Wird complete</h2>
-          <p>Alhamdulillāh — you've completed today's portion. Come back tomorrow for what's next due.</p>
-          <button class="primary-btn" id="backHomeBtn2" style="max-width:280px;margin:0 auto">Back to Today</button>
+          <h2>${isDrill ? "Drill complete" : "Wird complete"}</h2>
+          <p>${isDrill
+            ? "That struggle point just got a fresh review. Keep drilling weak spots or head back to the Mushaf."
+            : "Alhamdulillāh — you've completed today's portion. Come back tomorrow for what's next due."}</p>
+          <button class="primary-btn" id="backHomeBtn2" style="max-width:280px;margin:0 auto">${isDrill ? "Back to Mushaf" : "Back to Today"}</button>
         </div>
       </div>
     `;
-    document.getElementById("backHomeBtn2").addEventListener("click", renderHome);
+    document.getElementById("backHomeBtn2").addEventListener("click", isDrill ? renderMushaf : renderHome);
   }
 
   // ---------- sard (continuous whole-surah recitation) ----------
