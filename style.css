@@ -184,6 +184,34 @@ body {
 .card-arabic .faded-letter { opacity: 0.28; }
 .card-translation { text-align: center; color: var(--text-muted); font-size: 0.92rem; margin-bottom: 20px; line-height: 1.6; }
 
+/* tap/hover-for-transliteration words */
+.word-tap {
+  cursor: help;
+  border-radius: 4px;
+  transition: background 0.12s ease;
+}
+.word-tap:hover, .word-tap:active { background: var(--gold-soft); }
+.word-tooltip {
+  position: absolute;
+  z-index: 100;
+  background: var(--text);
+  color: var(--bg);
+  padding: 7px 12px;
+  border-radius: 9px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+  max-width: 200px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.word-tooltip.visible { opacity: 1; transform: translateY(0); }
+.word-tooltip .wt-tr { display: block; font-style: italic; font-family: var(--font-display); font-weight: 500; }
+.word-tooltip .wt-en { display: block; opacity: 0.75; font-size: 0.72rem; margin-top: 2px; }
+
 .audio-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-bottom: 22px; }
 .play-btn {
   width: 56px; height: 56px; border-radius: 50%; border: none;

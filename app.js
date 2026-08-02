@@ -24,6 +24,8 @@
   const SETTINGS_KEY = "wird-settings-v1";
   const STATS_KEY = "wird-stats-v1";
   const SURAH_CACHE_KEY = "wird-surah-cache-v1";
+  const WORDS_API = "https://api.quran.com/api/v4";
+  const WORDS_CACHE_KEY = "wird-words-cache-v1";
 
   const JUZ_AMMA_START = 78; // verified live against api.alquran.cloud: surah 77 last ayah = juz 29, surah 78-114 = juz 30
   const JUZ_AMMA_END = 114;
@@ -36,6 +38,7 @@
   let settings = { newPerDay: 5, reviewCap: 40 };
   let stats = { streak: 0, lastStudyDate: null, totalReviews: 0 };
   let surahCache = {};      // "surahNum" -> {ar: [...], en: [...], audio: [...]}
+  let wordsCache = {};      // "surah:ayah" -> [{ar, tr, en}, ...] (word-by-word, quran.com)
   let currentReciter = localStorage.getItem(RECITER_KEY) || "alafasy";
 
   function pad3(n) { return String(n).padStart(3, "0"); }
@@ -63,11 +66,13 @@
     settings = Object.assign({ newPerDay: 5, reviewCap: 40 }, load(SETTINGS_KEY, {}));
     stats = Object.assign({ streak: 0, lastStudyDate: null, totalReviews: 0 }, load(STATS_KEY, {}));
     surahCache = load(SURAH_CACHE_KEY, {});
+    wordsCache = load(WORDS_CACHE_KEY, {});
   }
   function saveCards() { save(CARDS_KEY, cards); }
   function saveSettings() { save(SETTINGS_KEY, settings); }
   function saveStats() { save(STATS_KEY, stats); }
   function saveSurahCache() { save(SURAH_CACHE_KEY, surahCache); }
+  function saveWordsCache() { save(WORDS_CACHE_KEY, wordsCache); }
 
   // ---------- date helpers ----------
   function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -156,6 +161,97 @@
   }
 
   function cardKey(surah, ayah) { return `${surah}:${ayah}`; }
+
+  // ---------- word-by-word (transliteration on hover/tap) ----------
+  // Fetched from quran.com's own word-by-word API (real Uthmani per-word
+  // text + transliteration + translation, verified live) rather than
+  // guessed -- getting a word's transliteration wrong on this kind of app
+  // is the same class of risk as everything else here.
+  const wordsInFlight = {};
+  async function ensureWordsLoaded(surahNum) {
+    const key = String(surahNum);
+    if (wordsCache[key]) return wordsCache[key];
+    if (wordsInFlight[key]) return wordsInFlight[key];
+    wordsInFlight[key] = (async () => {
+      try {
+        const data = await fetchJson(`${WORDS_API}/verses/by_chapter/${surahNum}?words=true&word_fields=text_uthmani,transliteration,translation&per_page=300`);
+        const byAyah = {};
+        (data.verses || []).forEach(v => {
+          const ayahNum = Number(v.verse_key.split(":")[1]);
+          byAyah[ayahNum] = (v.words || [])
+            .filter(w => w.char_type_name === "word")
+            .map(w => ({
+              ar: w.text_uthmani || w.text || "",
+              tr: (w.transliteration && w.transliteration.text) || "",
+              en: (w.translation && w.translation.text) || "",
+            }));
+        });
+        wordsCache[key] = byAyah;
+        saveWordsCache();
+        return byAyah;
+      } catch (e) {
+        return null; // silent -- falls back to plain (non-tappable) text
+      } finally {
+        delete wordsInFlight[key];
+      }
+    })();
+    return wordsInFlight[key];
+  }
+
+  function arabicHtmlRaw(surah, ayah, fallbackText) {
+    const bySurah = wordsCache[String(surah)];
+    const words = bySurah && bySurah[ayah];
+    if (!words || !words.length) return escapeHtml(fallbackText);
+    return words.map(w =>
+      `<span class="word-tap" data-tr="${escapeHtml(w.tr)}" data-en="${escapeHtml(w.en)}">${escapeHtml(w.ar)}</span>`
+    ).join(" ");
+  }
+  function arabicHtmlFor(card) { return arabicHtmlRaw(card.surah, card.ayah, card.text); }
+
+  // Single shared tooltip element, positioned near whichever word was
+  // hovered (desktop) or tapped (mobile) -- one mechanism for both, rather
+  // than a CSS-only :hover tooltip that wouldn't work on touch at all.
+  let wordTooltipEl = null;
+  function ensureWordTooltipEl() {
+    if (wordTooltipEl) return wordTooltipEl;
+    wordTooltipEl = document.createElement("div");
+    wordTooltipEl.className = "word-tooltip";
+    document.body.appendChild(wordTooltipEl);
+    return wordTooltipEl;
+  }
+  function showWordTooltip(target) {
+    const tr = target.dataset.tr, en = target.dataset.en;
+    if (!tr && !en) return;
+    const el = ensureWordTooltipEl();
+    el.innerHTML = `<span class="wt-tr">${escapeHtml(tr)}</span>${en ? `<span class="wt-en">${escapeHtml(en)}</span>` : ""}`;
+    el.classList.add("visible");
+    const rect = target.getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    let left = rect.left + rect.width / 2 - elRect.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - elRect.width - 8));
+    const top = rect.top - elRect.height - 10;
+    el.style.left = `${left + window.scrollX}px`;
+    el.style.top = `${(top < 0 ? rect.bottom + 10 : top) + window.scrollY}px`;
+  }
+  function hideWordTooltip() {
+    if (wordTooltipEl) wordTooltipEl.classList.remove("visible");
+  }
+  function wireWordTooltips(container) {
+    if (!container) return;
+    container.querySelectorAll(".word-tap").forEach(el => {
+      el.addEventListener("mouseenter", () => showWordTooltip(el));
+      el.addEventListener("mouseleave", hideWordTooltip);
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isSame = wordTooltipEl && wordTooltipEl.classList.contains("visible") && wordTooltipEl.dataset.forEl === el;
+        hideWordTooltip();
+        if (!isSame) { showWordTooltip(el); if (wordTooltipEl) wordTooltipEl.dataset.forEl = el; }
+      });
+    });
+  }
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".word-tap")) hideWordTooltip();
+  });
 
   // ---------- SRS ----------
   function newCard(surah, ayah, ayahData) {
@@ -325,7 +421,7 @@
     screenEl.innerHTML = `<div class="container"><p style="text-align:center;color:var(--text-muted)">Loading…</p></div>`;
     let data;
     try {
-      data = await ensureSurahLoaded(surahNum);
+      [data] = await Promise.all([ensureSurahLoaded(surahNum), ensureWordsLoaded(surahNum)]);
     } catch (e) {
       screenEl.innerHTML = `<div class="container"><p style="text-align:center;color:var(--bad)">Couldn't load this surah. Check your connection and try again.</p><button class="back-btn" id="backLibBtn">&larr; Library</button></div>`;
       document.getElementById("backLibBtn").addEventListener("click", renderLibrary);
@@ -341,7 +437,7 @@
             <span class="ayah-num-badge">Verse ${a.numberInSurah} · Page ${a.page}</span>
             <button class="add-toggle ${added ? "added" : ""}" data-ayah="${a.numberInSurah}">${added ? "Added ✓" : "Add to Wird"}</button>
           </div>
-          <div class="ayah-arabic">${escapeHtml(a.text)}</div>
+          <div class="ayah-arabic">${arabicHtmlRaw(surahNum, a.numberInSurah, a.text)}</div>
           <div class="ayah-translation">${escapeHtml(a.translation)}</div>
         </div>
       `;
@@ -358,6 +454,7 @@
         <div class="ayah-browser">${rows}</div>
       </div>
     `;
+    wireWordTooltips(document.querySelector(".ayah-browser"));
     document.getElementById("backLibBtn").addEventListener("click", renderLibrary);
     document.getElementById("addAllBtn").addEventListener("click", () => {
       data.ayahs.forEach(a => addVerse(surahNum, a.numberInSurah, a));
@@ -429,6 +526,10 @@
     if (!queue.length) return renderHome();
     updateStreak();
     session = { queue, total: queue.length, idx: 0 };
+    // Prefetch word-by-word data for every surah in today's queue so
+    // tap-for-transliteration is ready immediately, not only after a
+    // separate Library visit -- fire in parallel, don't block the render.
+    [...new Set(queue.map(c => c.surah))].forEach(s => ensureWordsLoaded(s));
     renderReviewChrome();
     await renderNextCard();
   }
@@ -554,9 +655,10 @@
     });
     document.getElementById("revealBtn").addEventListener("click", () => {
       document.getElementById("revealArea").innerHTML = `
-        <div class="card-arabic-box"><div class="card-arabic">${escapeHtml(card.text)}</div></div>
+        <div class="card-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
         <div class="card-translation">${escapeHtml(card.translation)}</div>
       `;
+      wireWordTooltips(document.getElementById("revealArea"));
       wireRatingRow(card);
     });
   }
@@ -587,7 +689,8 @@
       playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
     });
     document.getElementById("revealBtn").addEventListener("click", (e) => {
-      document.getElementById("fadeArabic").innerHTML = escapeHtml(card.text);
+      document.getElementById("fadeArabic").innerHTML = arabicHtmlFor(card);
+      wireWordTooltips(document.getElementById("fadeArabic"));
       document.getElementById("fullArea").innerHTML = `<div class="card-translation">${escapeHtml(card.translation)}</div>`;
       e.currentTarget.style.display = "none";
       wireRatingRow(card);
@@ -666,7 +769,7 @@
         <div class="mutashabih-pair" id="mutashabihPair">
           ${options.map((c, i) => `
             <div class="mutashabih-card" data-i="${i}">
-              <div class="arabic">${escapeHtml(c.text)}</div>
+              <div class="arabic">${arabicHtmlFor(c)}</div>
             </div>
           `).join("")}
         </div>
@@ -674,6 +777,7 @@
         ${ratingRowHtml()}
       </div>
     `;
+    wireWordTooltips(document.getElementById("mutashabihPair"));
     document.getElementById("playBtn").addEventListener("click", (e) => {
       e.currentTarget.classList.add("playing");
       playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
@@ -713,7 +817,7 @@
         <div class="mode-kicker">Page Position Sense</div>
         <div class="mode-hint">Which mushaf page is this verse on?</div>
         <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-        <div class="card-arabic-box"><div class="card-arabic">${escapeHtml(card.text)}</div></div>
+        <div class="card-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
         <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
         <div class="page-picker" id="pagePicker">
           ${choices.map(p => `<button class="page-cell" data-p="${p}">${p}</button>`).join("")}
@@ -722,6 +826,7 @@
         ${ratingRowHtml()}
       </div>
     `;
+    wireWordTooltips(host.querySelector(".card-arabic-box"));
     document.getElementById("playBtn").addEventListener("click", (e) => {
       e.currentTarget.classList.add("playing");
       playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
