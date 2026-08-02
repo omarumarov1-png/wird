@@ -127,6 +127,39 @@ body {
 .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
 .empty-state .glyph { font-size: 2.2rem; color: var(--gold); margin-bottom: 10px; }
 
+/* ---------- muraja'ah rotation ---------- */
+.muraja-section { margin: 22px 0; }
+.muraja-heading { font-family: var(--font-display); font-style: italic; font-size: 1.15rem; color: var(--emerald); text-align: center; }
+.muraja-sub { text-align: center; color: var(--text-muted); font-size: 0.82rem; max-width: 420px; margin: 6px auto 16px; line-height: 1.5; }
+.muraja-list { display: flex; flex-direction: column; gap: 8px; }
+.muraja-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: 12px;
+  padding: 13px 16px; cursor: pointer; text-align: left;
+}
+.muraja-row:hover { border-color: var(--emerald); }
+.muraja-row.urgent { border-color: var(--gold); background: var(--gold-soft); }
+.muraja-row-info .en { font-weight: 600; font-size: 0.92rem; }
+.muraja-row-info .sub { font-size: 0.76rem; color: var(--text-muted); margin-top: 2px; }
+.muraja-cta { font-size: 0.8rem; font-weight: 600; color: var(--emerald); white-space: nowrap; }
+
+/* ---------- sard (continuous recitation) ---------- */
+.sard-controls { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 18px 0 12px; }
+.stumble-btn {
+  display: block; margin: 0 auto 22px; border: 1.5px dashed var(--gold); background: none; color: var(--gold);
+  border-radius: 12px; padding: 9px 18px; cursor: pointer; font-size: 0.82rem;
+}
+.stumble-btn:hover { background: var(--gold-soft); }
+.sard-list { display: flex; flex-direction: column; gap: 5px; max-height: 40vh; overflow-y: auto; margin-bottom: 22px; border: 1px solid var(--border); border-radius: 12px; padding: 8px; }
+.sard-line { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px; font-size: 0.82rem; color: var(--text-muted); }
+.sard-line.current { background: var(--emerald-soft); color: var(--emerald); font-weight: 600; }
+.sard-line.done { color: var(--text); opacity: 0.55; }
+.sard-num { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; width: 24px; text-align: right; flex-shrink: 0; }
+.sard-dots { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.sard-rating-row { display: flex; flex-direction: column; gap: 10px; max-width: 340px; margin: 0 auto; }
+.sard-rate-btn { border: 1.5px solid var(--border); background: var(--surface); border-radius: 12px; padding: 13px 16px; text-align: left; cursor: pointer; }
+.sard-rate-btn:hover { border-color: var(--gold); }
+
 /* ---------- library ---------- */
 .juz-group { margin-bottom: 26px; }
 .juz-heading { font-family: var(--font-display); font-style: italic; font-size: 1.1rem; color: var(--emerald); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }

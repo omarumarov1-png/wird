@@ -26,6 +26,23 @@
   const SURAH_CACHE_KEY = "wird-surah-cache-v1";
   const WORDS_API = "https://api.quran.com/api/v4";
   const WORDS_CACHE_KEY = "wird-words-cache-v1";
+  const MURAJA_KEY = "wird-muraja-v1";
+
+  // Sard fluency ratings and how each one reshapes that surah's next
+  // rotation cycle -- self-adjusting, same spirit as the per-verse ease
+  // factor but at surah granularity. A real muraja'ah program doesn't wait
+  // for individual verses to come due one at a time; it re-visits the
+  // WHOLE surah on its own cadence so the connective tissue between
+  // verses (not just each verse in isolation) stays fresh.
+  const SARD_RATINGS = {
+    flawless: { label: "Flawless", sub: "no hesitation", mult: 1.35 },
+    minor: { label: "A little rough", sub: "one or two pauses", mult: 1.05 },
+    rough: { label: "Several stumbles", sub: "had to think hard", mult: 0.65 },
+    lost: { label: "Lost my place", sub: "needs real work", mult: 0.35 },
+  };
+  const MIN_CYCLE_DAYS = 2;
+  const MAX_CYCLE_DAYS = 30;
+  const INITIAL_CYCLE_DAYS = 3;
 
   const JUZ_AMMA_START = 78; // verified live against api.alquran.cloud: surah 77 last ayah = juz 29, surah 78-114 = juz 30
   const JUZ_AMMA_END = 114;
@@ -39,6 +56,7 @@
   let stats = { streak: 0, lastStudyDate: null, totalReviews: 0 };
   let surahCache = {};      // "surahNum" -> {ar: [...], en: [...], audio: [...]}
   let wordsCache = {};      // "surah:ayah" -> [{ar, tr, en}, ...] (word-by-word, quran.com)
+  let muraja = {};          // "surahNum" -> {lastFullReviewDate, cycleDays, lastRating}
   let currentReciter = localStorage.getItem(RECITER_KEY) || "alafasy";
 
   function pad3(n) { return String(n).padStart(3, "0"); }
@@ -54,6 +72,7 @@
 
   let session = null;       // { queue: [card,...], idx, total, revealed, currentMode }
   let currentAudio = null;
+  let sardSession = null;   // { surah, verses: [card,...], idx, stumbles: Set, playing }
 
   // ---------- persistence ----------
   function load(key, fallback) {
@@ -67,12 +86,14 @@
     stats = Object.assign({ streak: 0, lastStudyDate: null, totalReviews: 0 }, load(STATS_KEY, {}));
     surahCache = load(SURAH_CACHE_KEY, {});
     wordsCache = load(WORDS_CACHE_KEY, {});
+    muraja = load(MURAJA_KEY, {});
   }
   function saveCards() { save(CARDS_KEY, cards); }
   function saveSettings() { save(SETTINGS_KEY, settings); }
   function saveStats() { save(STATS_KEY, stats); }
   function saveSurahCache() { save(SURAH_CACHE_KEY, surahCache); }
   function saveWordsCache() { save(WORDS_CACHE_KEY, wordsCache); }
+  function saveMuraja() { save(MURAJA_KEY, muraja); }
 
   // ---------- date helpers ----------
   function todayISO() { return new Date().toISOString().slice(0, 10); }
@@ -280,6 +301,7 @@
       if (rating === "easy") { card.ease = card.ease + 0.15; card.interval = Math.round(card.interval * 1.35); }
       card.dueDate = addDaysISO(card.interval);
     }
+    if (rating === "again" || rating === "hard") card.struggleCount = (card.struggleCount || 0) + 1;
     stats.totalReviews++;
     saveStats();
   }
@@ -289,6 +311,60 @@
     if (card.interval < 7) return "learning";
     if (card.interval < 21) return "young";
     return "mature";
+  }
+
+  // ---------- muraja'ah rotation & sard (whole-surah recitation) ----------
+  // Per-verse SM-2 (above) is excellent for individual-ayah retention, but
+  // it lets due-dates fragment across a surah -- verse 5 due Tuesday,
+  // verse 12 due next month -- which is NOT how real hifz maintenance
+  // works. This is a second, independent scheduler at surah granularity:
+  // every surah with memorized verses gets its own rotating "full
+  // recitation" cycle, self-adjusting from how a real sard actually went,
+  // completely separate from any individual card's due date.
+  function surahsWithCards() {
+    const bySurah = {};
+    Object.values(cards).forEach(c => { (bySurah[c.surah] = bySurah[c.surah] || []).push(c); });
+    return bySurah;
+  }
+  function ensureMurajaEntry(surahNum) {
+    const key = String(surahNum);
+    if (!muraja[key]) {
+      muraja[key] = { lastFullReviewDate: null, cycleDays: INITIAL_CYCLE_DAYS, lastRating: null };
+    }
+    return muraja[key];
+  }
+  function daysBetween(isoA, isoB) {
+    return Math.round((new Date(isoB) - new Date(isoA)) / 86400000);
+  }
+  function computeMurajaDue() {
+    const bySurah = surahsWithCards();
+    const today = todayISO();
+    const due = [];
+    Object.keys(bySurah).forEach(key => {
+      const surahCards = bySurah[key];
+      // only surahs where every added verse has been through at least one
+      // real review are muraja'ah-eligible -- reviewing a surah's sard
+      // before you've even learned every added verse once isn't a
+      // meaningful test yet.
+      if (!surahCards.every(c => c.reps > 0)) return;
+      const entry = ensureMurajaEntry(key);
+      const overdue = !entry.lastFullReviewDate || daysBetween(entry.lastFullReviewDate, today) >= entry.cycleDays;
+      if (overdue) {
+        const daysSince = entry.lastFullReviewDate ? daysBetween(entry.lastFullReviewDate, today) : null;
+        due.push({ surah: Number(key), verseCount: surahCards.length, daysSince, cycleDays: entry.cycleDays });
+      }
+    });
+    due.sort((a, b) => (b.daysSince || 999) - (a.daysSince || 999));
+    return due;
+  }
+  function applySardRating(surahNum, ratingKey) {
+    const entry = ensureMurajaEntry(surahNum);
+    const r = SARD_RATINGS[ratingKey];
+    const prevCycle = entry.cycleDays;
+    entry.cycleDays = Math.max(MIN_CYCLE_DAYS, Math.min(MAX_CYCLE_DAYS, Math.round(prevCycle * r.mult)));
+    entry.lastFullReviewDate = todayISO();
+    entry.lastRating = ratingKey;
+    saveMuraja();
   }
 
   // ---------- home / today ----------
@@ -321,6 +397,7 @@
     const total = due.length + fresh.length;
     const allCards = Object.values(cards);
     const matureCt = allCards.filter(c => masteryStage(c) === "mature").length;
+    const murajaDue = computeMurajaDue();
 
     screenEl.innerHTML = `
       <div class="container">
@@ -357,6 +434,28 @@
           <div class="stat-box"><b>${allCards.length}</b><span>in memorization</span></div>
           <div class="stat-box"><b>${matureCt}</b><span>mature</span></div>
         </div>
+        ${murajaDue.length ? `
+          <div class="star-divider">${starSvg()}</div>
+          <div class="muraja-section">
+            <div class="muraja-heading">Muraja'ah Rotation</div>
+            <p class="muraja-sub">Whole-surah recitation, on its own cycle — separate from per-verse review, the way real ḥifẓ maintenance actually works.</p>
+            <div class="muraja-list">
+              ${murajaDue.map(m => {
+                const meta = surahList.find(s => s.number === m.surah);
+                const urgent = m.daysSince && m.daysSince >= m.cycleDays * 2;
+                return `
+                  <button class="muraja-row ${urgent ? "urgent" : ""}" data-surah="${m.surah}">
+                    <div class="muraja-row-info">
+                      <div class="en">${meta ? escapeHtml(meta.englishName) : "Surah " + m.surah}</div>
+                      <div class="sub">${m.verseCount} verses · ${m.daysSince === null ? "never reviewed as a whole" : `${m.daysSince} days since last sard`}</div>
+                    </div>
+                    <div class="muraja-cta">Start Sard →</div>
+                  </button>
+                `;
+              }).join("")}
+            </div>
+          </div>
+        ` : ""}
         <div class="star-divider">${starSvg()}</div>
         <div style="text-align:center;color:var(--text-muted);font-size:0.82rem;line-height:1.6;max-width:440px;margin:0 auto;">
           Reviews use real spaced repetition — you rate your own recall (Again / Hard / Good / Easy) and the schedule adapts, the same way serious ḥifẓ tracking has always worked, just automated.
@@ -367,6 +466,9 @@
     if (startBtn) startBtn.addEventListener("click", startWird);
     const libBtn = document.getElementById("goLibraryBtn");
     if (libBtn) libBtn.addEventListener("click", () => switchScreen("library"));
+    document.querySelectorAll(".muraja-row").forEach(btn => {
+      btn.addEventListener("click", () => startSard(Number(btn.dataset.surah)));
+    });
   }
 
   function starSvg() {
@@ -859,6 +961,146 @@
       </div>
     `;
     document.getElementById("backHomeBtn2").addEventListener("click", renderHome);
+  }
+
+  // ---------- sard (continuous whole-surah recitation) ----------
+  // Deliberately NOT card-by-card like the review session -- this is a
+  // single continuous pass through every memorized verse of a surah in
+  // order, text hidden throughout, closer to how a real sami' (listener)
+  // tests a hafiz: you recite the whole thing, they only step in if you
+  // genuinely lose the thread. The "stumbled here" button lets you flag a
+  // rough spot WITHOUT breaking flow -- stopping to rate each verse would
+  // defeat the point of testing continuous recall.
+  function startSard(surahNum) {
+    const verses = Object.values(cards)
+      .filter(c => c.surah === surahNum)
+      .sort((a, b) => a.ayah - b.ayah);
+    if (!verses.length) return renderHome();
+    cancelAudio();
+    sardSession = { surah: surahNum, verses, idx: 0, stumbles: new Set(), playing: false };
+    renderSardScreen();
+  }
+
+  function renderSardScreen() {
+    const meta = surahList.find(s => s.number === sardSession.surah);
+    const rows = sardSession.verses.map((v, i) => `
+      <div class="sard-line ${i === sardSession.idx ? "current" : i < sardSession.idx ? "done" : ""}" data-i="${i}">
+        <span class="sard-num">${v.ayah}</span>
+        <span class="sard-dots">${i < sardSession.idx ? "recited" : i === sardSession.idx ? "reciting now" : ""}</span>
+      </div>
+    `).join("");
+
+    screenEl.innerHTML = `
+      <div class="review-bar">
+        <button class="exit-btn" id="exitSardBtn">&times;</button>
+        <div class="progress-track"><div class="progress-fill" id="sardProgressFill" style="width:0%"></div></div>
+      </div>
+      <div class="container">
+        <div class="hero" style="padding-top:12px;padding-bottom:4px">
+          <div class="hero-eyebrow">Sard · Continuous Recitation</div>
+          <h1 style="font-size:1.5rem">${meta ? escapeHtml(meta.englishName) : "Surah " + sardSession.surah}</h1>
+          <p>Recite from memory, verse by verse, without stopping. Text stays hidden — this tests the whole chain, not one link at a time.</p>
+        </div>
+        <div class="sard-controls">
+          <button class="play-btn" id="sardPlayBtn">▶</button>
+          <button class="secondary-btn" id="sardNextBtn">Next verse (silent)</button>
+        </div>
+        <button class="stumble-btn" id="sardStumbleBtn">I stumbled here — keep going</button>
+        <div class="sard-list" id="sardList">${rows}</div>
+        <button class="primary-btn" id="sardFinishBtn">Finish Sard</button>
+      </div>
+    `;
+    document.getElementById("exitSardBtn").addEventListener("click", () => { cancelAudio(); sardSession = null; renderHome(); });
+    document.getElementById("sardPlayBtn").addEventListener("click", toggleSardPlayback);
+    document.getElementById("sardNextBtn").addEventListener("click", () => advanceSard(false));
+    document.getElementById("sardStumbleBtn").addEventListener("click", () => {
+      sardSession.stumbles.add(sardSession.idx);
+      document.getElementById("sardStumbleBtn").textContent = "Marked — keep reciting";
+      setTimeout(() => {
+        const btn = document.getElementById("sardStumbleBtn");
+        if (btn) btn.textContent = "I stumbled here — keep going";
+      }, 900);
+    });
+    document.getElementById("sardFinishBtn").addEventListener("click", finishSard);
+    updateSardProgress();
+  }
+
+  function updateSardProgress() {
+    const pct = Math.round((sardSession.idx / sardSession.verses.length) * 100);
+    const fill = document.getElementById("sardProgressFill");
+    if (fill) fill.style.width = pct + "%";
+  }
+
+  function toggleSardPlayback() {
+    const btn = document.getElementById("sardPlayBtn");
+    if (sardSession.playing) {
+      sardSession.playing = false;
+      cancelAudio();
+      btn.textContent = "▶";
+      btn.classList.remove("playing");
+      return;
+    }
+    sardSession.playing = true;
+    btn.textContent = "⏸";
+    btn.classList.add("playing");
+    playCurrentSardVerse();
+  }
+  function playCurrentSardVerse() {
+    if (!sardSession || !sardSession.playing) return;
+    if (sardSession.idx >= sardSession.verses.length) { sardSession.playing = false; return; }
+    const v = sardSession.verses[sardSession.idx];
+    playAudio(audioUrlFor(v.surah, v.ayah), 1, () => {
+      if (!sardSession || !sardSession.playing) return;
+      advanceSard(true);
+    });
+  }
+  function advanceSard(fromPlayback) {
+    if (!sardSession) return;
+    sardSession.idx++;
+    if (sardSession.idx >= sardSession.verses.length) {
+      sardSession.playing = false;
+      cancelAudio();
+      return finishSard();
+    }
+    renderSardScreen();
+    if (fromPlayback && sardSession.playing) {
+      const btn = document.getElementById("sardPlayBtn");
+      if (btn) { btn.textContent = "⏸"; btn.classList.add("playing"); }
+      playCurrentSardVerse();
+    }
+  }
+
+  function finishSard() {
+    cancelAudio();
+    const { surah, verses, stumbles } = sardSession;
+    const meta = surahList.find(s => s.number === surah);
+    screenEl.innerHTML = `
+      <div class="container">
+        <div class="complete-screen">
+          <div class="complete-emoji">﴾ ﴿</div>
+          <h2>How did that sard feel?</h2>
+          <p>${meta ? escapeHtml(meta.englishName) : "This surah"} — ${verses.length} verses${stumbles.size ? `, ${stumbles.size} marked as rough` : ""}. Your honest answer sets when this surah comes back around.</p>
+          <div class="sard-rating-row">
+            ${Object.entries(SARD_RATINGS).map(([key, r]) => `
+              <button class="rate-btn sard-rate-btn" data-rating="${key}">${r.label}<span class="sub">${r.sub}</span></button>
+            `).join("")}
+          </div>
+        </div>
+      </div>
+    `;
+    document.querySelectorAll(".sard-rate-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        applySardRating(surah, btn.dataset.rating);
+        stumbles.forEach(i => {
+          const v = verses[i];
+          const key = cardKey(v.surah, v.ayah);
+          if (cards[key]) cards[key].struggleCount = (cards[key].struggleCount || 0) + 1;
+        });
+        saveCards();
+        sardSession = null;
+        renderHome();
+      });
+    });
   }
 
   // ---------- nav ----------
