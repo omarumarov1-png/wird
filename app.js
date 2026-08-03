@@ -1161,31 +1161,8 @@
     return `${name} ${card.ayah}`;
   }
 
-  function ratingRowHtml(card) {
-    const progress = card ? phaseProgressLabel(card) : null;
-    return `
-      ${progress ? `<div class="phase-progress">${escapeHtml(progress)}</div>` : ""}
-      <div class="rating-row" id="ratingRow" style="display:none">
-        <button class="rate-btn again" data-r="again">Again<span class="sub">forgot</span></button>
-        <button class="rate-btn hard" data-r="hard">Hard<span class="sub">struggled</span></button>
-        <button class="rate-btn good" data-r="good">Good<span class="sub">recalled</span></button>
-        <button class="rate-btn easy" data-r="easy">Easy<span class="sub">instant</span></button>
-        <div class="rating-hint">Swipe right/left (Good/Again), or ←/→ · 1–4</div>
-      </div>
-    `;
-  }
-  // Shared by every rating row (verse review + vocab review). Two input
-  // paths beyond plain tapping:
-  //  - touch/mouse: swipe the row itself right (Good) or left (Again) --
-  //    exactly two directions, no need to hit a specific button.
-  //  - desktop keyboard: Left/Right arrows mirror the same two swipes;
-  //    1-4 still give precise access to all four ratings.
-  // `rate(key)` is the single call site every input path funnels through,
-  // so there is exactly one place that ever applies a rating -- no risk
-  // of a swipe's synthetic action and the browser's own trailing native
-  // click both firing for the same gesture.
-  // Generic 2-direction drag gesture, reused by both the compact rating
-  // row and the full story-card. Drags `el` itself (translate + tilt +
+  // Generic 2-direction drag gesture, used by every review card's
+  // story-swipe-zone. Drags `el` itself (translate + tilt +
   // tint), commits to onRight/onLeft once dragged past `threshold`,
   // snaps back below it. A plain tap (no real horizontal movement) never
   // touches these callbacks, so any nested clickable child (a button,
@@ -1213,12 +1190,22 @@
       if (!moved && Math.abs(dx) > moveThreshold && Math.abs(dx) > Math.abs(dy)) {
         moved = true;
         el.classList.add("swiping");
+        // Capture only once a real drag is confirmed, not on every
+        // pointerdown -- capturing unconditionally would redirect a
+        // plain stationary tap's resulting click away from whatever
+        // nested element (a reveal area, a word) it actually landed on.
+        // Without this, the element translating out from under the
+        // cursor mid-drag can leave it hovering over something else (or
+        // nothing) by release time, and pointerup would silently never
+        // reach this listener at all.
+        try { el.setPointerCapture(e.pointerId); } catch (err) { /* unsupported pointer type -- fine, falls back to normal hit-testing */ }
       }
       if (moved) { deltaX = dx; applyVisual(dx); }
     });
-    function endDrag() {
+    function endDrag(e) {
       if (!dragging) return;
       dragging = false;
+      if (e && e.pointerId !== undefined) { try { el.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ } }
       el.classList.remove("swiping");
       const finalDx = deltaX, wasMoved = moved;
       resetVisual();
@@ -1233,68 +1220,29 @@
       }
     }
     el.addEventListener("pointerup", endDrag);
-    el.addEventListener("pointercancel", () => { dragging = false; el.classList.remove("swiping"); resetVisual(); moved = false; });
+    el.addEventListener("pointercancel", (e) => {
+      // An aborted gesture (not a real release) never commits, even if
+      // it had already crossed the threshold -- only endDrag's pointerup
+      // path does that.
+      if (!dragging) return;
+      dragging = false;
+      if (e && e.pointerId !== undefined) { try { el.releasePointerCapture(e.pointerId); } catch (err) { /* already released */ } }
+      el.classList.remove("swiping");
+      resetVisual();
+      moved = false;
+    });
     return { wasRecentlyDragged: () => moved };
   }
-  // Shared by every rating row (verse review + vocab review). Two input
-  // paths beyond plain tapping:
-  //  - touch/mouse: swipe the row itself right (Good) or left (Again) --
-  //    exactly two directions, no need to hit a specific button.
-  //  - desktop keyboard: Left/Right arrows mirror the same two swipes;
-  //    1-4 still give precise access to all four ratings.
-  // `rate(key)` is the single call site every input path funnels through,
-  // so there is exactly one place that ever applies a rating -- no risk
-  // of a swipe's synthetic action and the browser's own trailing native
-  // click both firing for the same gesture.
-  function wireRatingRowInteractions(row, rate) {
-    const buttons = Array.from(row.querySelectorAll(".rate-btn"));
-    let applied = false;
-    function fire(ratingKey) {
-      if (applied) return;
-      applied = true;
-      clearReviewKeydownCleanup();
-      rate(ratingKey);
-    }
-    const swipe = wireHorizontalSwipe(row, { onRight: () => fire("good"), onLeft: () => fire("again") });
-    buttons.forEach(btn => {
-      btn.addEventListener("click", () => {
-        if (swipe.wasRecentlyDragged()) return; // tail end of a swipe gesture, already handled
-        fire(btn.dataset.r);
-      });
-    });
-    function onKeydown(e) {
-      const active = document.activeElement;
-      if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
-      if (e.key === "ArrowRight") { e.preventDefault(); fire("good"); return; }
-      if (e.key === "ArrowLeft") { e.preventDefault(); fire("again"); return; }
-      const idx = { "1": 0, "2": 1, "3": 2, "4": 3 }[e.key];
-      if (idx === undefined) return;
-      const btn = buttons[idx];
-      if (btn && !btn.disabled) { e.preventDefault(); fire(btn.dataset.r); }
-    }
-    document.addEventListener("keydown", onKeydown);
-    setReviewKeydownCleanup(() => document.removeEventListener("keydown", onKeydown));
-    // Lets an external gesture (e.g. the story-card's whole-zone swipe)
-    // that committed a rating through its own path shut this row's
-    // listeners down too, so its keydown handler can't double-apply a
-    // rating during the brief transition before the next card renders.
-    return { disable: () => { applied = true; clearReviewKeydownCleanup(); } };
-  }
-  function wireRatingRow(card, onDone) {
-    const row = document.getElementById("ratingRow");
-    row.style.display = "grid";
-    return wireRatingRowInteractions(row, (ratingKey) => {
-      applyRating(card, ratingKey);
-      saveCards();
-      session.idx++;
-      onDone ? onDone() : renderNextCard();
-    });
-  }
+  // Every review card (verse or vocab) wires its own onRight/onLeft
+  // directly against wireHorizontalSwipe -- touch/mouse swipe right/left,
+  // or Left/Right arrow keys on desktop. There is no shared rating-row
+  // component anymore: every mode is now either buttonless (swipe only)
+  // or fully auto-graded (see commitVerseObjective/commitVocabObjective
+  // below).
 
-  // "4/7" while learning, "2/2" while reviewing -- shown without a
-  // rating row underneath it on every objectively-graded exercise below,
-  // so the encounter-count rule stays visible even where there's nothing
-  // left for the user to tap.
+  // "4/7" while learning, "2/2" while reviewing -- shown on every
+  // objectively-graded exercise below, so the encounter-count rule stays
+  // visible even where there's nothing left for the user to tap.
   function phaseProgressHtml(card) {
     const label = phaseProgressLabel(card);
     return label ? `<div class="phase-progress">${escapeHtml(label)}</div>` : "";
@@ -1412,6 +1360,10 @@
   }
 
   // -- mode: fade recall --
+  // Buttonless, same swipe language as Listen & Recall: some words are
+  // hidden, tap to peek and check yourself (that's the exercise, not a
+  // rating), then swipe right ("I recalled it") or left ("I didn't") --
+  // no rating row.
   function renderFadeRecall(host, card) {
     const stage = masteryStage(card);
     const fadeLevel = stage === "learning" ? 0.15 : stage === "young" ? 0.45 : 0.75;
@@ -1420,29 +1372,55 @@
       ? `<span class="hidden-word">${"ـ".repeat(Math.min(4, Math.max(2, w.length)))}</span>`
       : escapeHtml(w)
     ).join(" ");
+    let settled = false;
     host.innerHTML = `
-      <div class="review-stage">
-        <div class="mode-kicker">Fade Recall</div>
-        <div class="mode-hint">Recite the missing words from memory, then reveal to check.</div>
-        <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-        <div class="card-arabic-box"><div class="card-arabic" id="fadeArabic">${faded}</div></div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
-        <button class="reveal-btn" id="revealBtn">Reveal full verse</button>
-        <div id="fullArea"></div>
-        ${ratingRowHtml(card)}
+      <div class="review-stage story-mode">
+        <div class="story-swipe-zone" id="storySwipeZone">
+          <div class="story-bg" aria-hidden="true"></div>
+          <div class="story-swipe-hint hint-left">Again</div>
+          <div class="story-swipe-hint hint-right">Good</div>
+          <div class="story-content">
+            <div class="mode-kicker">Fade Recall</div>
+            <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
+            <div class="story-loop-indicator">Recite the missing words, tap to check</div>
+            <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" id="fadeArabic">${faded}</div></div>
+            <div class="card-translation" id="fadeTranslation"></div>
+          </div>
+        </div>
       </div>
     `;
-    document.getElementById("playBtn").addEventListener("click", (e) => {
-      e.currentTarget.classList.add("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
-    });
-    document.getElementById("revealBtn").addEventListener("click", (e) => {
-      document.getElementById("fadeArabic").innerHTML = arabicHtmlFor(card);
-      wireWordTooltips(document.getElementById("fadeArabic"));
-      document.getElementById("fullArea").innerHTML = `<div class="card-translation">${escapeHtml(card.translation)}</div>`;
-      e.currentTarget.style.display = "none";
-      wireRatingRow(card);
-    });
+    const zone = document.getElementById("storySwipeZone");
+    wireWordTooltips(zone);
+    playAudio(audioUrlFor(card.surah, card.ayah), 1);
+    document.getElementById("fadeArabic").addEventListener("click", (e) => {
+      e.currentTarget.classList.remove("tap-to-check");
+      e.currentTarget.innerHTML = arabicHtmlFor(card);
+      wireWordTooltips(e.currentTarget);
+      document.getElementById("fadeTranslation").textContent = card.translation;
+      playAudio(audioUrlFor(card.surah, card.ayah), 1);
+    }, { once: true });
+
+    wireHorizontalSwipe(zone, { onRight: () => commit("good"), onLeft: () => commit("again") });
+    function onKeydown(e) {
+      const active = document.activeElement;
+      if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
+      if (e.key === "ArrowRight") { e.preventDefault(); commit("good"); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); commit("again"); }
+    }
+    document.addEventListener("keydown", onKeydown);
+    setReviewKeydownCleanup(() => document.removeEventListener("keydown", onKeydown));
+
+    function commit(ratingKey) {
+      if (settled) return;
+      settled = true;
+      clearReviewKeydownCleanup();
+      cancelAudio();
+      zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
+      applyRating(card, ratingKey);
+      saveCards();
+      session.idx++;
+      setTimeout(() => renderNextCard(), 340);
+    }
   }
 
   // -- mode: chain test --
@@ -1652,11 +1630,17 @@
   // split of card.text -- word boundaries from the authoritative
   // word-by-word source avoid any mismatch with diacritic/whitespace
   // quirks a manual split could introduce.
+  // Duolingo-style sentence building: tap a word and it's gone from the
+  // bank immediately (not dimmed-but-lingering), reflowing the rest of
+  // the bank naturally. No Check button either -- placing the last word
+  // grades automatically, same instant-feedback language as every other
+  // exercise here.
   function renderAssemble(host, card) {
     const wordData = wordDataFor(card);
     if (!wordData) return renderFadeRecall(host, card);
     const bank = shuffled(wordData.map((w, i) => ({ ...w, id: i })));
     const placed = [];
+    let checked = false;
 
     host.innerHTML = `
       <div class="review-stage">
@@ -1668,7 +1652,6 @@
         <div class="wb-bank" id="assembleBank">
           ${bank.map(w => `<button class="wb-chip" data-id="${w.id}" data-ar="${escapeHtml(w.ar)}">${escapeHtml(w.ar)}</button>`).join("")}
         </div>
-        <button class="primary-btn" id="assembleCheckBtn" disabled>Check</button>
         <div id="assembleFeedback"></div>
         ${phaseProgressHtml(card)}
       </div>
@@ -1679,12 +1662,11 @@
     });
 
     const targetEl = document.getElementById("assembleTarget");
-    const checkBtn = document.getElementById("assembleCheckBtn");
     function renderTarget() {
       targetEl.innerHTML = placed.map(w => `<button class="wb-chip in-target" data-id="${w.id}">${escapeHtml(w.ar)}</button>`).join("");
-      checkBtn.disabled = placed.length !== wordData.length;
       targetEl.querySelectorAll(".wb-chip").forEach(chip => {
         chip.addEventListener("click", () => {
+          if (checked) return;
           const id = Number(chip.dataset.id);
           const idx = placed.findIndex(p => p.id === id);
           if (idx >= 0) placed.splice(idx, 1);
@@ -1693,10 +1675,11 @@
           renderTarget();
         });
       });
+      if (placed.length === wordData.length) setTimeout(checkAnswer, 220);
     }
     document.getElementById("assembleBank").querySelectorAll(".wb-chip").forEach(chip => {
       chip.addEventListener("click", () => {
-        if (chip.classList.contains("placed")) return;
+        if (checked || chip.classList.contains("placed")) return;
         const id = Number(chip.dataset.id);
         placed.push(wordData.find((w, i) => i === id));
         placed[placed.length - 1].id = id;
@@ -1704,17 +1687,21 @@
         renderTarget();
       });
     });
-    checkBtn.addEventListener("click", () => {
-      checkBtn.disabled = true;
+    function checkAnswer() {
+      if (checked) return;
+      checked = true;
       const correct = placed.every((w, i) => w.id === i);
       document.querySelectorAll("#assembleBank .wb-chip").forEach(c => c.style.pointerEvents = "none");
-      document.querySelectorAll("#assembleTarget .wb-chip").forEach(c => c.style.pointerEvents = "none");
+      document.querySelectorAll("#assembleTarget .wb-chip").forEach(c => {
+        c.style.pointerEvents = "none";
+        c.classList.add(correct ? "correct" : "incorrect");
+      });
       document.getElementById("assembleFeedback").innerHTML = correct
         ? `<div class="feedback-line correct">Correct order.</div>`
         : `<div class="feedback-line incorrect">Not quite. Correct order:</div><div class="card-arabic-box" style="margin-top:10px"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>`;
       if (!correct) wireWordTooltips(document.getElementById("assembleFeedback"));
       commitVerseObjective(card, correct);
-    });
+    }
   }
 
   // -- mode: sequence (verse stitching) --
@@ -2207,17 +2194,6 @@
     const fill = document.getElementById("vocabProgressFill");
     if (fill) fill.style.width = pct + "%";
   }
-  function wireVocabRatingRow(card) {
-    const row = document.getElementById("ratingRow");
-    row.style.display = "grid";
-    wireRatingRowInteractions(row, (ratingKey) => {
-      applyRating(card, ratingKey);
-      saveVocabCards();
-      vocabSession.idx++;
-      renderNextVocabCard();
-    });
-  }
-
   function vocabEligibleModes(card) {
     const stage = masteryStage(card);
     const modes = ["flash"];
@@ -2262,28 +2238,60 @@
   }
 
   // -- vocab mode: flashcard --
+  // Buttonless, same swipe language as the verse story-cards: the word's
+  // audio plays on render, tap the word to reveal its meaning (that's
+  // the exercise, not a rating), then swipe right/left -- no rating row.
   function renderVocabFlash(host, card, word) {
+    let settled = false;
     host.innerHTML = `
-      <div class="review-stage">
-        <div class="mode-kicker">Flashcard</div>
-        <div class="mode-hint">Recall the meaning, then reveal to check.</div>
-        <div class="ref-badge">Rank ${word.rk} · seen ${word.n}×</div>
-        <div class="card-arabic-box"><div class="card-arabic" dir="rtl">${escapeHtml(word.ar)}</div></div>
-        ${vocabPlayBtnHtml()}
-        <div id="vocabRevealArea">
-          <button class="reveal-btn" id="vocabRevealBtn">Tap to reveal meaning</button>
+      <div class="review-stage story-mode">
+        <div class="story-swipe-zone" id="storySwipeZone">
+          <div class="story-bg" aria-hidden="true"></div>
+          <div class="story-swipe-hint hint-left">Again</div>
+          <div class="story-swipe-hint hint-right">Good</div>
+          <div class="story-content">
+            <div class="mode-kicker">Flashcard</div>
+            <div class="ref-badge">Rank ${word.rk} · seen ${word.n}×</div>
+            <div class="story-loop-indicator">Recall the meaning, tap to check</div>
+            <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" dir="rtl" id="vocabFlashWord">${escapeHtml(word.ar)}</div></div>
+            <div class="card-translation" id="vocabFlashMeaning"></div>
+          </div>
         </div>
-        ${ratingRowHtml(card)}
       </div>
     `;
-    wireVocabPlay(word);
-    document.getElementById("vocabRevealBtn").addEventListener("click", () => {
-      document.getElementById("vocabRevealArea").innerHTML = `
-        <div class="card-translation" style="font-size:1.05rem;font-weight:600;color:var(--text)">${escapeHtml(word.tr)}</div>
-        <div class="card-translation">${word.en.map(escapeHtml).join(" · ")}</div>
+    const zone = document.getElementById("storySwipeZone");
+    const playWord = () => { if (word.au) playAudio(`https://audio.qurancdn.com/${word.au}`, 1); };
+    playWord();
+    document.getElementById("vocabFlashWord").addEventListener("click", (e) => {
+      e.currentTarget.classList.remove("tap-to-check");
+      document.getElementById("vocabFlashMeaning").innerHTML = `
+        <span style="font-size:1.05rem;font-weight:600;color:#fff">${escapeHtml(word.tr)}</span><br>
+        ${word.en.map(escapeHtml).join(" · ")}
       `;
-      wireVocabRatingRow(card);
-    });
+      playWord();
+    }, { once: true });
+
+    wireHorizontalSwipe(zone, { onRight: () => commit("good"), onLeft: () => commit("again") });
+    function onKeydown(e) {
+      const active = document.activeElement;
+      if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
+      if (e.key === "ArrowRight") { e.preventDefault(); commit("good"); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); commit("again"); }
+    }
+    document.addEventListener("keydown", onKeydown);
+    setReviewKeydownCleanup(() => document.removeEventListener("keydown", onKeydown));
+
+    function commit(ratingKey) {
+      if (settled) return;
+      settled = true;
+      clearReviewKeydownCleanup();
+      cancelAudio();
+      zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
+      applyRating(card, ratingKey);
+      saveVocabCards();
+      vocabSession.idx++;
+      setTimeout(() => renderNextVocabCard(), 340);
+    }
   }
 
   // -- vocab mode: multiple choice, Arabic -> meaning --

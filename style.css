@@ -306,7 +306,12 @@ body {
 .story-swipe-zone.swiping { transition: none; cursor: grabbing; }
 .story-swipe-zone:active { cursor: grabbing; }
 .story-bg {
-  position: absolute; inset: -20%; z-index: 0;
+  /* small inset, not a big negative percentage -- a large oversized
+     background here previously inflated the zone's scrollHeight (an
+     absolutely-positioned descendant extending past its containing
+     block counts toward it even though it's out of normal flow),
+     which looked exactly like real text content being clipped. */
+  position: absolute; inset: -8px; z-index: 0;
   background:
     repeating-linear-gradient(135deg, color-mix(in srgb, var(--gold) 10%, transparent) 0px, color-mix(in srgb, var(--gold) 10%, transparent) 1px, transparent 1px, transparent 34px),
     repeating-linear-gradient(45deg, color-mix(in srgb, var(--bg) 14%, transparent) 0px, color-mix(in srgb, var(--bg) 14%, transparent) 1px, transparent 1px, transparent 34px),
@@ -338,6 +343,8 @@ body {
 }
 .story-arabic-box .card-arabic { font-size: 2.35rem; line-height: 2.35; color: #201a0c; }
 .story-arabic-box .card-arabic .hidden-word { color: var(--gold); }
+.story-arabic-box .card-arabic.tap-to-check { cursor: pointer; }
+.story-arabic-box .card-arabic.tap-to-check .hidden-word { border-bottom: 2px dotted var(--gold); }
 .story-swipe-zone .card-translation { color: rgba(255,255,255,0.92); font-size: 0.95rem; }
 .story-swipe-hint {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
@@ -400,24 +407,8 @@ body {
 .speed-btn { border: 1.5px solid var(--border); background: var(--surface); border-radius: 10px; padding: 8px 12px; font-size: 0.8rem; cursor: pointer; color: var(--text); }
 .speed-btn.active { border-color: var(--gold); color: var(--gold); }
 
-.reveal-btn { display: block; margin: 0 auto 20px; background: none; border: 1.5px dashed var(--border); color: var(--text-muted); border-radius: 12px; padding: 10px 20px; cursor: pointer; font-size: 0.85rem; }
-.reveal-btn:hover { border-color: var(--emerald); color: var(--emerald); }
 
 .phase-progress { text-align: center; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.03em; color: var(--text-muted); margin-top: 24px; }
-.rating-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 24px; touch-action: pan-y; user-select: none; -webkit-user-select: none; border-radius: 14px; transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), background 0.15s ease; }
-.phase-progress + .rating-row { margin-top: 6px; }
-.rating-row.swiping { touch-action: none; transition: none; }
-.rating-row.swipe-right { background: var(--good-soft); }
-.rating-row.swipe-left { background: var(--bad-soft); }
-.rate-btn { border: 1.5px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 6px; font-size: 0.82rem; font-weight: 600; cursor: pointer; color: var(--text); text-align: center; transition: transform 0.08s ease, background 0.08s ease; }
-.rate-btn .sub { display: block; font-size: 0.68rem; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
-.rate-btn.again { border-color: var(--bad); color: var(--bad); }
-.rate-btn.again:hover { background: var(--bad-soft); }
-.rate-btn.hard:hover { background: var(--gold-soft); border-color: var(--gold); }
-.rate-btn.good { border-color: var(--good); color: var(--good); }
-.rate-btn.good:hover { background: var(--good-soft); }
-.rate-btn.easy:hover { background: var(--emerald-soft); border-color: var(--emerald); }
-.rating-hint { grid-column: 1 / -1; text-align: center; font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
 
 /* chain test */
 .chain-context { background: var(--surface-2); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; text-align: center; }
@@ -439,20 +430,26 @@ body {
 .option:hover:not(:disabled) { border-color: var(--gold); }
 .option:disabled { cursor: default; }
 
-/* word-order (assemble): draggable-feeling word bank + build target */
+/* word-order (assemble): duolingo-style sentence-building strip + word bank */
 .wb-target {
-  display: flex; flex-wrap: wrap; gap: 8px; min-height: 64px; align-content: flex-start;
-  padding: 14px; background: var(--surface-2); border: 1.5px dashed var(--border); border-radius: 12px; margin-bottom: 16px;
+  display: flex; flex-wrap: wrap; gap: 9px; min-height: 68px; align-content: flex-start;
+  padding: 16px; background: var(--surface-2); border: none; border-bottom: 2.5px solid var(--border);
+  border-radius: 12px 12px 4px 4px; margin-bottom: 18px; transition: border-color 0.15s ease;
 }
-.wb-bank { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 20px; }
+.wb-bank { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; margin-bottom: 20px; }
 .wb-chip {
-  background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
-  padding: 10px 15px; cursor: pointer; font-family: var(--font-arabic); font-size: 1.25rem; color: var(--text);
-  transition: border-color 0.12s ease, opacity 0.12s ease, transform 0.08s ease;
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: 14px;
+  padding: 11px 16px; cursor: pointer; font-family: var(--font-arabic); font-size: 1.25rem; color: var(--text);
+  box-shadow: 0 2px 0 var(--border);
+  transition: border-color 0.12s ease, transform 0.08s ease, box-shadow 0.08s ease;
 }
 .wb-chip:hover:not(.placed) { border-color: var(--gold); transform: translateY(-1px); }
-.wb-chip.placed { opacity: 0.28; pointer-events: none; }
-.wb-chip.in-target:hover { border-color: var(--bad); }
+.wb-chip:active:not(.placed) { transform: translateY(1px); box-shadow: 0 1px 0 var(--border); }
+/* the moment a word is chosen it's gone from the bank -- no lingering
+   dimmed ghost -- and the rest of the bank reflows to fill the gap. */
+.wb-chip.placed { display: none; }
+.wb-chip.in-target { border-color: var(--emerald); color: var(--emerald); box-shadow: 0 2px 0 var(--emerald); }
+.wb-chip.in-target:hover { border-color: var(--bad); color: var(--bad); box-shadow: 0 2px 0 var(--bad); }
 
 /* mutashabihat */
 .mutashabih-pair { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
@@ -544,7 +541,6 @@ body {
 .vocab-tier-blurb { font-size: 0.78rem; color: var(--text-muted); margin-top: 5px; line-height: 1.45; }
 
 @media (max-width: 480px) {
-  .rating-row { grid-template-columns: repeat(2, 1fr); }
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .page-picker { grid-template-columns: repeat(4, 1fr); }
   .topnav { font-size: 0.8rem; }
