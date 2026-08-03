@@ -332,10 +332,13 @@ body {
 .pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: #fff; opacity: 0.5; }
 .story-loop-indicator.playing .pulse-dot { animation: dotPulse 1s ease-in-out infinite; }
 @keyframes dotPulse { 0%, 100% { opacity: 0.4; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1.15); } }
-.story-swipe-zone #revealArea .reveal-btn { border-color: rgba(255,255,255,0.5); color: #fff; }
-.story-swipe-zone #revealArea .reveal-btn:hover { border-color: #fff; }
-.story-swipe-zone #revealArea .card-arabic-box { background: rgba(255,255,255,0.94); border: none; }
-.story-swipe-zone #revealArea .card-translation { color: rgba(255,255,255,0.88); }
+.story-arabic-box {
+  background: #fffdf8; border: none; box-shadow: 0 6px 22px rgba(0,0,0,0.22);
+  padding: 30px 22px; margin-bottom: 16px; width: 100%;
+}
+.story-arabic-box .card-arabic { font-size: 2.35rem; line-height: 2.35; color: #201a0c; }
+.story-arabic-box .card-arabic .hidden-word { color: var(--gold); }
+.story-swipe-zone .card-translation { color: rgba(255,255,255,0.92); font-size: 0.95rem; }
 .story-swipe-hint {
   position: absolute; top: 50%; transform: translateY(-50%); z-index: 2;
   font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
@@ -351,6 +354,8 @@ body {
 .story-swipe-zone.story-committed-again { box-shadow: 0 0 0 4px var(--bad), 0 10px 34px rgba(0,0,0,0.16); }
 @media (max-width: 480px) {
   .story-swipe-zone { min-height: 340px; padding: 26px 18px; }
+  .story-arabic-box { padding: 22px 16px; }
+  .story-arabic-box .card-arabic { font-size: 1.9rem; line-height: 2.1; }
 }
 
 /* tap/hover-for-transliteration words */
@@ -424,6 +429,31 @@ body {
 .chain-opt.correct { border-color: var(--good); background: var(--good-soft); }
 .chain-opt.incorrect { border-color: var(--bad); background: var(--bad-soft); }
 
+/* generic multiple-choice options: blind spot, sequence, cloze, vocab MC/context/audio-rec */
+.options { display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px; }
+.option {
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: 12px;
+  padding: 14px 16px; cursor: pointer; text-align: left; font-size: 0.92rem; color: var(--text);
+  line-height: 1.4; transition: border-color 0.12s ease, background 0.12s ease;
+}
+.option:hover:not(:disabled) { border-color: var(--gold); }
+.option:disabled { cursor: default; }
+
+/* word-order (assemble): draggable-feeling word bank + build target */
+.wb-target {
+  display: flex; flex-wrap: wrap; gap: 8px; min-height: 64px; align-content: flex-start;
+  padding: 14px; background: var(--surface-2); border: 1.5px dashed var(--border); border-radius: 12px; margin-bottom: 16px;
+}
+.wb-bank { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 20px; }
+.wb-chip {
+  background: var(--surface); border: 1.5px solid var(--border); border-radius: 10px;
+  padding: 10px 15px; cursor: pointer; font-family: var(--font-arabic); font-size: 1.25rem; color: var(--text);
+  transition: border-color 0.12s ease, opacity 0.12s ease, transform 0.08s ease;
+}
+.wb-chip:hover:not(.placed) { border-color: var(--gold); transform: translateY(-1px); }
+.wb-chip.placed { opacity: 0.28; pointer-events: none; }
+.wb-chip.in-target:hover { border-color: var(--bad); }
+
 /* mutashabihat */
 .mutashabih-pair { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
 .mutashabih-card { background: var(--surface); border: 1.5px solid var(--border); border-radius: 14px; padding: 18px; cursor: pointer; }
@@ -440,9 +470,27 @@ body {
 .page-cell.incorrect { border-color: var(--bad); background: var(--bad-soft); }
 
 /* feedback */
-.feedback-line { text-align: center; font-size: 0.88rem; margin-top: 14px; padding: 10px; border-radius: 10px; }
+.feedback-line { text-align: center; font-size: 0.88rem; margin-top: 14px; padding: 10px; border-radius: 10px; animation: feedbackPop 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.3); }
 .feedback-line.correct { color: var(--good); background: var(--good-soft); }
 .feedback-line.incorrect { color: var(--bad); background: var(--bad-soft); }
+@keyframes feedbackPop { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .feedback-line { animation: none; } }
+
+/* correct/incorrect option states, shared by every objectively-graded exercise */
+.option.correct, .chain-opt.correct, .mutashabih-card.correct, .wb-chip.correct { border-color: var(--good) !important; background: var(--good-soft) !important; }
+.option.incorrect, .chain-opt.incorrect, .mutashabih-card.incorrect, .wb-chip.incorrect { border-color: var(--bad) !important; background: var(--bad-soft) !important; animation: shake 0.32s ease; }
+@keyframes shake { 20% { transform: translateX(-4px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(3px); } 100% { transform: translateX(0); } }
+@media (prefers-reduced-motion: reduce) { .option.incorrect, .chain-opt.incorrect, .mutashabih-card.incorrect, .wb-chip.incorrect { animation: none; } }
+
+/* review-bar combo streak, gamifying objectively-graded exercises */
+.combo-badge {
+  font-size: 0.78rem; font-weight: 700; color: var(--gold);
+  opacity: 0; transform: scale(0.7); transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.4);
+  white-space: nowrap;
+}
+.combo-badge.show { opacity: 1; transform: scale(1); animation: comboPop 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.4); }
+@keyframes comboPop { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { .combo-badge.show { animation: none; } }
 
 .primary-btn {
   background: linear-gradient(90deg, var(--emerald), var(--gold));

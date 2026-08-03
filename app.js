@@ -987,10 +987,12 @@
   }
 
   function renderReviewChrome() {
+    resetCombo();
     screenEl.innerHTML = `
       <div class="review-bar">
         <button class="exit-btn" id="exitReviewBtn">&times;</button>
         <div class="progress-track"><div class="progress-fill" id="reviewProgressFill" style="width:0%"></div></div>
+        <span class="combo-badge" id="comboBadge"></span>
       </div>
       <div id="reviewHost"></div>
     `;
@@ -1013,6 +1015,26 @@
     sardSession = null;
     pageListenState = null;
     vocabSession = null;
+    clearReviewKeydownCleanup();
+  }
+  // Every review card that wires its own document-level keydown listener
+  // (rating row swipe/keys, story-card swipe/arrow keys) only removes it
+  // when a rating is actually applied. If a card is abandoned instead --
+  // the exit button, switching tabs, navigating elsewhere mid-card -- that
+  // listener used to leak on `document` forever, and could fire again
+  // later against its now-stale `card` closure, silently misapplying a
+  // rating to whatever session happened to be active by then. Routing
+  // every add/remove through this single tracked slot means wiring a new
+  // listener always tears down whatever the previous one left behind, and
+  // resetActiveSessions() (called on every top-level screen render) is a
+  // catch-all backstop for every exit path at once.
+  let activeReviewKeydownCleanup = null;
+  function setReviewKeydownCleanup(fn) {
+    if (activeReviewKeydownCleanup) activeReviewKeydownCleanup();
+    activeReviewKeydownCleanup = fn;
+  }
+  function clearReviewKeydownCleanup() {
+    if (activeReviewKeydownCleanup) { activeReviewKeydownCleanup(); activeReviewKeydownCleanup = null; }
   }
   function playAudio(url, rate, onEnd) {
     cancelAudio();
@@ -1230,7 +1252,7 @@
     function fire(ratingKey) {
       if (applied) return;
       applied = true;
-      document.removeEventListener("keydown", onKeydown);
+      clearReviewKeydownCleanup();
       rate(ratingKey);
     }
     const swipe = wireHorizontalSwipe(row, { onRight: () => fire("good"), onLeft: () => fire("again") });
@@ -1251,11 +1273,12 @@
       if (btn && !btn.disabled) { e.preventDefault(); fire(btn.dataset.r); }
     }
     document.addEventListener("keydown", onKeydown);
+    setReviewKeydownCleanup(() => document.removeEventListener("keydown", onKeydown));
     // Lets an external gesture (e.g. the story-card's whole-zone swipe)
     // that committed a rating through its own path shut this row's
     // listeners down too, so its keydown handler can't double-apply a
     // rating during the brief transition before the next card renders.
-    return { disable: () => { applied = true; document.removeEventListener("keydown", onKeydown); } };
+    return { disable: () => { applied = true; clearReviewKeydownCleanup(); } };
   }
   function wireRatingRow(card, onDone) {
     const row = document.getElementById("ratingRow");
@@ -1268,6 +1291,51 @@
     });
   }
 
+  // "4/7" while learning, "2/2" while reviewing -- shown without a
+  // rating row underneath it on every objectively-graded exercise below,
+  // so the encounter-count rule stays visible even where there's nothing
+  // left for the user to tap.
+  function phaseProgressHtml(card) {
+    const label = phaseProgressLabel(card);
+    return label ? `<div class="phase-progress">${escapeHtml(label)}</div>` : "";
+  }
+
+  // Every exercise below (word order, missing word, chain test, etc.) has
+  // a real, checkable right answer -- the app already knows whether the
+  // user got it right. Asking them to ALSO self-rate Again/Hard/Good/Easy
+  // on top of that would just let a wrong answer get rated "Good" (or a
+  // right one get rated "Again") on nothing but feeling -- exactly the
+  // "subjective self-correction" this replaces. Correct maps straight to
+  // "good", incorrect to "again"; grading happens the instant the answer
+  // is checked, with a short pause to let the feedback + combo register
+  // before the next card loads.
+  let comboStreak = 0;
+  function resetCombo() { comboStreak = 0; updateComboBadge(); }
+  function updateComboBadge() {
+    const el = document.getElementById("comboBadge");
+    if (!el) return;
+    if (comboStreak >= 2) { el.textContent = `\u{1F525} ${comboStreak}`; el.classList.add("show"); }
+    else { el.classList.remove("show"); }
+  }
+  function bumpCombo(correct) {
+    comboStreak = correct ? comboStreak + 1 : 0;
+    updateComboBadge();
+  }
+  function commitVerseObjective(card, correct) {
+    bumpCombo(correct);
+    applyRating(card, correct ? "good" : "again");
+    saveCards();
+    session.idx++;
+    setTimeout(() => renderNextCard(), correct ? 850 : 1500);
+  }
+  function commitVocabObjective(card, correct) {
+    bumpCombo(correct);
+    applyRating(card, correct ? "good" : "again");
+    saveVocabCards();
+    vocabSession.idx++;
+    setTimeout(() => renderNextVocabCard(), correct ? 850 : 1500);
+  }
+
   // -- mode: listen & recall --
   // Listen & Recall as an immersive, story-style card: the recitation
   // auto-plays and loops -- keeps repeating -- until you swipe. Swipe
@@ -1276,8 +1344,12 @@
   // peek early, the 4-way rating row, and keyboard shortcuts all still
   // work exactly as before -- the loop/swipe is a faster path layered on
   // top, not a replacement for them.
+  // No buttons here by design -- the script is on screen and playing the
+  // moment the card appears, and the only input is the swipe itself:
+  // right ("I've got this") or left ("I don't"). Arrow keys mirror it on
+  // desktop. Audio is cut the instant a swipe commits, and the next
+  // card's recitation starts the instant it renders.
   function renderListenRecall(host, card) {
-    let revealed = false;
     let settled = false;
     host.innerHTML = `
       <div class="review-stage story-mode">
@@ -1288,30 +1360,19 @@
           <div class="story-content">
             <div class="mode-kicker">Listen &amp; Recall</div>
             <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-            <div class="story-loop-indicator" id="loopIndicator"><span class="pulse-dot"></span>On loop &mdash; swipe when ready</div>
-            <div id="revealArea">
-              <button class="reveal-btn" id="revealBtn">Tap to peek</button>
-            </div>
+            <div class="story-loop-indicator" id="loopIndicator"><span class="pulse-dot"></span>Swipe right when ready, left to repeat</div>
+            <div class="card-arabic-box story-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
+            <div class="card-translation">${escapeHtml(card.translation)}</div>
           </div>
         </div>
-        ${ratingRowHtml(card)}
       </div>
     `;
     const zone = document.getElementById("storySwipeZone");
-    const row = document.getElementById("ratingRow");
+    wireWordTooltips(zone);
 
-    function revealNow() {
-      if (revealed) return;
-      revealed = true;
-      document.getElementById("revealArea").innerHTML = `
-        <div class="card-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
-        <div class="card-translation">${escapeHtml(card.translation)}</div>
-      `;
-      wireWordTooltips(document.getElementById("revealArea"));
-    }
     function loopPlay() {
       if (settled) return;
-      const container = revealed ? document.querySelector("#revealArea .card-arabic") : null;
+      const container = document.querySelector(".story-arabic-box .card-arabic");
       const indicator = document.getElementById("loopIndicator");
       if (indicator) indicator.classList.add("playing");
       const onEnd = () => {
@@ -1324,25 +1385,29 @@
     }
     loopPlay();
 
-    document.getElementById("revealBtn").addEventListener("click", revealNow);
-
-    const ratingRowCtl = wireRatingRow(card, () => { settled = true; renderNextCard(); });
     wireHorizontalSwipe(zone, {
       onRight: () => commit("good"),
       onLeft: () => commit("again"),
     });
+    function onKeydown(e) {
+      const active = document.activeElement;
+      if (active && ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName)) return;
+      if (e.key === "ArrowRight") { e.preventDefault(); commit("good"); }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); commit("again"); }
+    }
+    document.addEventListener("keydown", onKeydown);
+    setReviewKeydownCleanup(() => document.removeEventListener("keydown", onKeydown));
+
     function commit(ratingKey) {
       if (settled) return;
       settled = true;
+      clearReviewKeydownCleanup();
       cancelAudio();
-      ratingRowCtl.disable();
-      row.style.pointerEvents = "none";
-      revealNow();
       zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
       applyRating(card, ratingKey);
       saveCards();
       session.idx++;
-      setTimeout(() => renderNextCard(), 480);
+      setTimeout(() => renderNextCard(), 340);
     }
   }
 
@@ -1407,7 +1472,7 @@
           ${options.map((t, i) => `<button class="chain-opt" data-i="${i}">${escapeHtml(t)}</button>`).join("")}
         </div>
         <div id="chainFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
@@ -1428,7 +1493,7 @@
           });
         }
         document.getElementById("chainFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct — the chain holds." : "Not quite — review the transition."}</div>`;
-        wireRatingRow(card);
+        commitVerseObjective(card, correct);
       });
     });
   }
@@ -1457,7 +1522,7 @@
           `).join("")}
         </div>
         <div id="mutashabihFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     wireWordTooltips(document.getElementById("mutashabihPair"));
@@ -1480,7 +1545,7 @@
           });
         }
         document.getElementById("mutashabihFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct — you told them apart." : "These two are easy to mix up — worth extra review."}</div>`;
-        wireRatingRow(card);
+        commitVerseObjective(card, correct);
       });
     });
   }
@@ -1506,7 +1571,7 @@
           ${choices.map(p => `<button class="page-cell" data-p="${p}">${p}</button>`).join("")}
         </div>
         <div id="pageFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     wireWordTooltips(host.querySelector(".card-arabic-box"));
@@ -1524,7 +1589,7 @@
         btn.classList.add(correct ? "correct" : "incorrect");
         if (!correct) document.querySelector(`.page-cell[data-p="${card.page}"]`).classList.add("correct");
         document.getElementById("pageFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct page." : `This verse is on page ${card.page}.`}</div>`;
-        wireRatingRow(card);
+        commitVerseObjective(card, correct);
       });
     });
   }
@@ -1550,7 +1615,7 @@
           ${options.map((c, i) => `<button class="option" data-i="${i}">${escapeHtml(refBadge(c))}</button>`).join("")}
         </div>
         <div id="blindFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
@@ -1577,7 +1642,7 @@
           <div class="card-translation">${escapeHtml(card.translation)}</div>
         `;
         wireWordTooltips(document.getElementById("blindFeedback"));
-        wireRatingRow(card);
+        commitVerseObjective(card, correct);
       });
     });
   }
@@ -1605,7 +1670,7 @@
         </div>
         <button class="primary-btn" id="assembleCheckBtn" disabled>Check</button>
         <div id="assembleFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
@@ -1648,7 +1713,7 @@
         ? `<div class="feedback-line correct">Correct order.</div>`
         : `<div class="feedback-line incorrect">Not quite. Correct order:</div><div class="card-arabic-box" style="margin-top:10px"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>`;
       if (!correct) wireWordTooltips(document.getElementById("assembleFeedback"));
-      wireRatingRow(card);
+      commitVerseObjective(card, correct);
     });
   }
 
@@ -1673,7 +1738,7 @@
           ${shuffledTriple.map((v, i) => `<button class="option" data-i="${i}">${escapeHtml(v.text)}</button>`).join("")}
         </div>
         <div id="seqFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
 
@@ -1696,7 +1761,7 @@
           document.getElementById("seqFeedback").innerHTML = correct
             ? `<div class="feedback-line correct">Correct sequence.</div>`
             : `<div class="feedback-line incorrect">Not quite the right order — review the transitions between these three.</div>`;
-          wireRatingRow(card);
+          commitVerseObjective(card, correct);
         }
       });
     });
@@ -1738,7 +1803,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
         </div>
         <div id="clozeFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     wireWordTooltips(host.querySelector(".card-arabic-box"));
@@ -1760,7 +1825,7 @@
           });
         }
         document.getElementById("clozeFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : "The missing word was " + escapeHtml(correctWord.ar) + "."}</div>`;
-        wireRatingRow(card);
+        commitVerseObjective(card, correct);
       });
     });
   }
@@ -2126,10 +2191,12 @@
     await renderNextVocabCard();
   }
   function renderVocabReviewChrome() {
+    resetCombo();
     screenEl.innerHTML = `
       <div class="review-bar">
         <button class="exit-btn" id="exitVocabBtn">&times;</button>
         <div class="progress-track"><div class="progress-fill" id="vocabProgressFill" style="width:0%"></div></div>
+        <span class="combo-badge" id="comboBadge"></span>
       </div>
       <div id="vocabReviewHost"></div>
     `;
@@ -2233,7 +2300,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}">${escapeHtml(w.en[0] || w.tr)}</button>`).join("")}
         </div>
         <div id="vocabMcFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     wireVocabPlay(word);
@@ -2247,7 +2314,7 @@
         btn.classList.add(correct ? "correct" : "incorrect");
         if (!correct) document.querySelectorAll("#vocabMcOptions .option").forEach((b, i) => { if (options[i].id === word.id) b.classList.add("correct"); });
         document.getElementById("vocabMcFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : escapeHtml(word.tr) + " = " + escapeHtml(word.en[0])}</div>`;
-        wireVocabRatingRow(card);
+        commitVocabObjective(card, correct);
       });
     });
   }
@@ -2264,7 +2331,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
         </div>
         <div id="vocabMcFeedback2"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     let answered = false;
@@ -2277,7 +2344,7 @@
         btn.classList.add(correct ? "correct" : "incorrect");
         if (!correct) document.querySelectorAll("#vocabMcOptions2 .option").forEach((b, i) => { if (options[i].id === word.id) b.classList.add("correct"); });
         document.getElementById("vocabMcFeedback2").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : "That was " + escapeHtml(word.ar)}</div>`;
-        wireVocabRatingRow(card);
+        commitVocabObjective(card, correct);
       });
     });
   }
@@ -2310,7 +2377,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}">${escapeHtml(w.en[0] || w.tr)}</button>`).join("")}
         </div>
         <div id="vocabCtxFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     let answered = false;
@@ -2323,7 +2390,7 @@
         btn.classList.add(correct ? "correct" : "incorrect");
         if (!correct) document.querySelectorAll("#vocabCtxOptions .option").forEach((b, i) => { if (options[i].id === word.id) b.classList.add("correct"); });
         document.getElementById("vocabCtxFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : escapeHtml(word.tr) + " = " + escapeHtml(word.en[0])}</div>`;
-        wireVocabRatingRow(card);
+        commitVocabObjective(card, correct);
       });
     });
   }
@@ -2342,7 +2409,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
         </div>
         <div id="vocabAudioFeedback"></div>
-        ${ratingRowHtml(card)}
+        ${phaseProgressHtml(card)}
       </div>
     `;
     wireVocabPlay(word);
@@ -2357,7 +2424,7 @@
         btn.classList.add(correct ? "correct" : "incorrect");
         if (!correct) document.querySelectorAll("#vocabAudioOptions .option").forEach((b, i) => { if (options[i].id === word.id) b.classList.add("correct"); });
         document.getElementById("vocabAudioFeedback").innerHTML = `<div class="feedback-line ${correct ? "correct" : "incorrect"}">${correct ? "Correct." : "That was " + escapeHtml(word.ar) + " (" + escapeHtml(word.tr) + ")"}</div>`;
-        wireVocabRatingRow(card);
+        commitVocabObjective(card, correct);
       });
     });
   }
