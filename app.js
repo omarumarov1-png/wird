@@ -1351,6 +1351,7 @@
       settled = true;
       clearReviewKeydownCleanup();
       cancelAudio();
+      bumpCombo(ratingKey === "good");
       zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
       applyRating(card, ratingKey);
       saveCards();
@@ -1415,6 +1416,7 @@
       settled = true;
       clearReviewKeydownCleanup();
       cancelAudio();
+      bumpCombo(ratingKey === "good");
       zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
       applyRating(card, ratingKey);
       saveCards();
@@ -1445,7 +1447,7 @@
           <div class="label">End of this verse</div>
           <div class="arabic-frag">…${escapeHtml(card.text.split(" ").slice(-4).join(" "))}</div>
         </div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶ Play this verse</button></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
         <div class="chain-options" id="chainOptions">
           ${options.map((t, i) => `<button class="chain-opt" data-i="${i}">${escapeHtml(t)}</button>`).join("")}
         </div>
@@ -1491,7 +1493,7 @@
       <div class="review-stage">
         <div class="mode-kicker">Look-Alike Challenge</div>
         <div class="mode-hint">These two verses closely resemble each other. Which one is <b>${escapeHtml(refBadge(card))}</b>?</div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶ Play the target verse</button></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
         <div class="mutashabih-pair" id="mutashabihPair">
           ${options.map((c, i) => `
             <div class="mutashabih-card" data-i="${i}">
@@ -1588,7 +1590,7 @@
       <div class="review-stage">
         <div class="mode-kicker">Blind Spot</div>
         <div class="mode-hint">No reference shown. Listen, then place this verse among your own memorized set.</div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶ Play</button></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
         <div class="options" id="blindOptions">
           ${options.map((c, i) => `<button class="option" data-i="${i}">${escapeHtml(refBadge(c))}</button>`).join("")}
         </div>
@@ -2286,6 +2288,7 @@
       settled = true;
       clearReviewKeydownCleanup();
       cancelAudio();
+      bumpCombo(ratingKey === "good");
       zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
       applyRating(card, ratingKey);
       saveVocabCards();

@@ -15,7 +15,11 @@
   --bad: #b0473f;
   --bad-soft: #fbe8e5;
   --radius: 16px;
-  --font-arabic: "Scheherazade New", serif;
+  /* Amiri Quran as a fallback specifically for rare Uthmani annotation
+     marks (small-high signs, open fathatan, etc.) that the hosted
+     Scheherazade New subset doesn't cover -- without it those codepoints
+     render as tofu boxes in real Qur'anic text. */
+  --font-arabic: "Scheherazade New", "Amiri Quran", serif;
   --font-display: "Fraunces", Georgia, serif;
   --font-ui: "Inter", -apple-system, sans-serif;
   color-scheme: light;
