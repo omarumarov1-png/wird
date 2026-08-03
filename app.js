@@ -363,28 +363,97 @@
   });
 
   // ---------- SRS ----------
+  // Three-phase engine (verse cards and vocab cards both run through this
+  // same code, since a "verse" and a "word" are just two card shapes with
+  // identical scheduling needs):
+  //   1. learning  -- must string together 7 CONSECUTIVE successful
+  //      encounters on a short, growing ladder. Any "again" restarts the
+  //      ladder from the top -- true mastery means 7 in a row, not 7
+  //      total exposures with lapses forgiven.
+  //   2. reviewing -- once learning graduates, 2 more consecutive
+  //      successes at longer intervals confirm the material actually
+  //      survived real time, not just short-term learning-phase memory.
+  //   3. mature -- graduated fully; normal ease-factor-driven SM-2 growth
+  //      takes over indefinitely. A lapse here demotes back into
+  //      "reviewing" (not all the way to "learning") since forgetting a
+  //      long-held item is a weaker signal than forgetting a new one.
+  // Both ladders are day-based (this app's natural grain -- reviews
+  // happen once daily), Fibonacci-ish so early gaps are short (fast
+  // exposure) and later gaps widen (efficient -- no rote back-to-back
+  // repeats once a step has already stuck).
+  const LEARNING_GAPS = [0, 1, 1, 2, 3, 5]; // gap in days *after* each of the first 6 learning successes, before the next
+  const REVIEWING_GAPS = [14, 30]; // gap before the 1st, then the 2nd, reviewing-phase confirmation
+  const LEARNING_ENCOUNTERS = LEARNING_GAPS.length + 1; // 7
+  const REVIEWING_ENCOUNTERS = REVIEWING_GAPS.length; // 2
+
+  // Old cards (pre-dating this phase model) only have interval/reps/ease.
+  // Infer a reasonable phase/step from where they already stood, rather
+  // than unfairly resetting real progress back to the start of a new
+  // 7-step ladder. Idempotent -- a no-op once a card carries `phase`.
+  function ensurePhaseFields(card) {
+    if (card.phase) return card;
+    if (!card.reps) {
+      card.phase = "learning"; card.learningStep = 0; card.reviewStep = 0;
+    } else if (card.interval >= 21) {
+      card.phase = "mature"; card.learningStep = LEARNING_ENCOUNTERS; card.reviewStep = REVIEWING_ENCOUNTERS;
+    } else if (card.interval >= 7) {
+      card.phase = "reviewing"; card.learningStep = LEARNING_ENCOUNTERS; card.reviewStep = 1;
+    } else {
+      card.phase = "learning";
+      card.learningStep = Math.max(0, Math.min(LEARNING_ENCOUNTERS - 1, card.reps));
+      card.reviewStep = 0;
+    }
+    return card;
+  }
+
   function newCard(surah, ayah, ayahData) {
     return {
       surah, ayah,
       text: ayahData.text, translation: ayahData.translation,
       page: ayahData.page, juz: ayahData.juz,
       interval: 0, ease: 2.5, reps: 0,
+      phase: "learning", learningStep: 0, reviewStep: 0,
       dueDate: todayISO(),
       addedDate: todayISO(),
     };
   }
 
   function applyRating(card, rating) {
+    ensurePhaseFields(card);
     if (rating === "again") {
-      card.reps = 0;
+      if (card.phase === "learning") card.learningStep = 0;
+      else if (card.phase === "reviewing") card.reviewStep = 0;
+      else { card.phase = "reviewing"; card.reviewStep = 0; } // mature lapse: reconfirm, don't nuke back to scratch
+      // reps deliberately does NOT reset here -- it's a monotonic "has
+      // this ever been reviewed" counter (computeQueue's fresh/due split,
+      // muraja'ah eligibility, and cloud-merge all key off it), while
+      // learningStep/reviewStep above already carry the actual "how far
+      // into the current streak" state that a lapse needs to rewind.
       card.interval = 0;
       card.ease = Math.max(1.3, card.ease - 0.2);
       card.dueDate = todayISO();
     } else {
       card.reps = (card.reps || 0) + 1;
-      if (card.reps === 1) card.interval = 1;
-      else if (card.reps === 2) card.interval = 3;
-      else card.interval = Math.round(card.interval * card.ease);
+      if (card.phase === "learning") {
+        card.learningStep++;
+        if (card.learningStep >= LEARNING_ENCOUNTERS) {
+          card.phase = "reviewing";
+          card.reviewStep = 0;
+          card.interval = REVIEWING_GAPS[0];
+        } else {
+          card.interval = LEARNING_GAPS[card.learningStep - 1];
+        }
+      } else if (card.phase === "reviewing") {
+        card.reviewStep++;
+        if (card.reviewStep >= REVIEWING_ENCOUNTERS) {
+          card.phase = "mature";
+          card.interval = Math.round((card.interval || REVIEWING_GAPS[REVIEWING_GAPS.length - 1]) * card.ease);
+        } else {
+          card.interval = REVIEWING_GAPS[card.reviewStep];
+        }
+      } else {
+        card.interval = Math.round(card.interval * card.ease);
+      }
       if (rating === "hard") { card.ease = Math.max(1.3, card.ease - 0.15); card.interval = Math.max(1, Math.round(card.interval * 0.8)); }
       if (rating === "easy") { card.ease = card.ease + 0.15; card.interval = Math.round(card.interval * 1.35); }
       card.dueDate = addDaysISO(card.interval);
@@ -395,10 +464,21 @@
   }
 
   function masteryStage(card) {
+    ensurePhaseFields(card);
     if (card.reps === 0) return "new";
-    if (card.interval < 7) return "learning";
-    if (card.interval < 21) return "young";
+    if (card.phase === "learning") return "learning";
+    if (card.phase === "reviewing") return "young";
     return "mature";
+  }
+  // "3/7" while learning, "1/2" while reviewing, or null once mature/new
+  // -- surfaced next to the rating row so the encounter-count rule stays
+  // visible and legible, not just an invisible internal mechanic.
+  function phaseProgressLabel(card) {
+    ensurePhaseFields(card);
+    if (card.reps === 0) return null;
+    if (card.phase === "learning") return `Learning ${card.learningStep}/${LEARNING_ENCOUNTERS}`;
+    if (card.phase === "reviewing") return `Reviewing ${card.reviewStep}/${REVIEWING_ENCOUNTERS}`;
+    return null;
   }
 
   // ---------- muraja'ah rotation & sard (whole-surah recitation) ----------
@@ -1059,8 +1139,10 @@
     return `${name} ${card.ayah}`;
   }
 
-  function ratingRowHtml() {
+  function ratingRowHtml(card) {
+    const progress = card ? phaseProgressLabel(card) : null;
     return `
+      ${progress ? `<div class="phase-progress">${escapeHtml(progress)}</div>` : ""}
       <div class="rating-row" id="ratingRow" style="display:none">
         <button class="rate-btn again" data-r="again">Again<span class="sub">forgot</span></button>
         <button class="rate-btn hard" data-r="hard">Hard<span class="sub">struggled</span></button>
@@ -1212,7 +1294,7 @@
             </div>
           </div>
         </div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     const zone = document.getElementById("storySwipeZone");
@@ -1282,7 +1364,7 @@
         <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
         <button class="reveal-btn" id="revealBtn">Reveal full verse</button>
         <div id="fullArea"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
@@ -1325,7 +1407,7 @@
           ${options.map((t, i) => `<button class="chain-opt" data-i="${i}">${escapeHtml(t)}</button>`).join("")}
         </div>
         <div id="chainFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
@@ -1375,7 +1457,7 @@
           `).join("")}
         </div>
         <div id="mutashabihFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     wireWordTooltips(document.getElementById("mutashabihPair"));
@@ -1424,7 +1506,7 @@
           ${choices.map(p => `<button class="page-cell" data-p="${p}">${p}</button>`).join("")}
         </div>
         <div id="pageFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     wireWordTooltips(host.querySelector(".card-arabic-box"));
@@ -1468,7 +1550,7 @@
           ${options.map((c, i) => `<button class="option" data-i="${i}">${escapeHtml(refBadge(c))}</button>`).join("")}
         </div>
         <div id="blindFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
@@ -1523,7 +1605,7 @@
         </div>
         <button class="primary-btn" id="assembleCheckBtn" disabled>Check</button>
         <div id="assembleFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
@@ -1591,7 +1673,7 @@
           ${shuffledTriple.map((v, i) => `<button class="option" data-i="${i}">${escapeHtml(v.text)}</button>`).join("")}
         </div>
         <div id="seqFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
 
@@ -1656,7 +1738,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
         </div>
         <div id="clozeFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     wireWordTooltips(host.querySelector(".card-arabic-box"));
@@ -1854,7 +1936,7 @@
     return vocabBank;
   }
   function newVocabCard(id) {
-    return { id, interval: 0, ease: 2.5, reps: 0, dueDate: todayISO(), addedDate: todayISO() };
+    return { id, interval: 0, ease: 2.5, reps: 0, phase: "learning", learningStep: 0, reviewStep: 0, dueDate: todayISO(), addedDate: todayISO() };
   }
   function addVocabWord(id) {
     if (vocabCards[id]) return;
@@ -2124,7 +2206,7 @@
         <div id="vocabRevealArea">
           <button class="reveal-btn" id="vocabRevealBtn">Tap to reveal meaning</button>
         </div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     wireVocabPlay(word);
@@ -2151,7 +2233,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}">${escapeHtml(w.en[0] || w.tr)}</button>`).join("")}
         </div>
         <div id="vocabMcFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     wireVocabPlay(word);
@@ -2182,7 +2264,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
         </div>
         <div id="vocabMcFeedback2"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     let answered = false;
@@ -2228,7 +2310,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}">${escapeHtml(w.en[0] || w.tr)}</button>`).join("")}
         </div>
         <div id="vocabCtxFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     let answered = false;
@@ -2260,7 +2342,7 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
         </div>
         <div id="vocabAudioFeedback"></div>
-        ${ratingRowHtml()}
+        ${ratingRowHtml(card)}
       </div>
     `;
     wireVocabPlay(word);

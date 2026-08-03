@@ -398,7 +398,9 @@ body {
 .reveal-btn { display: block; margin: 0 auto 20px; background: none; border: 1.5px dashed var(--border); color: var(--text-muted); border-radius: 12px; padding: 10px 20px; cursor: pointer; font-size: 0.85rem; }
 .reveal-btn:hover { border-color: var(--emerald); color: var(--emerald); }
 
+.phase-progress { text-align: center; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.03em; color: var(--text-muted); margin-top: 24px; }
 .rating-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 24px; touch-action: pan-y; user-select: none; -webkit-user-select: none; border-radius: 14px; transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), background 0.15s ease; }
+.phase-progress + .rating-row { margin-top: 6px; }
 .rating-row.swiping { touch-action: none; transition: none; }
 .rating-row.swipe-right { background: var(--good-soft); }
 .rating-row.swipe-left { background: var(--bad-soft); }
