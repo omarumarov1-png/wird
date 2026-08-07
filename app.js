@@ -199,6 +199,22 @@
     return a;
   }
   function sample(arr, n) { return shuffled(arr).slice(0, n); }
+  // Plain random sampling across the whole 15,420-word bank let a target
+  // like "من" (a one-word "from") land next to distractors like "they
+  // will steal" or "And We drowned" -- full-phrase translations of much
+  // rarer words. The correct answer became guessable purely by being the
+  // shortest option, with zero actual vocabulary recall involved. Biasing
+  // toward distractors whose translation is a comparable number of words
+  // keeps the choice about meaning, not phrase length; falls back to the
+  // unrestricted pool if the bank doesn't have enough close matches so a
+  // rare/unusually-worded entry never comes up short on distractors.
+  function vocabWordCount(w) { return ((w.en && w.en[0]) || "").split(/\s+/).filter(Boolean).length || 1; }
+  function sampleVocabDistractors(target, n) {
+    const pool = vocabBank.filter(w => w.id !== target.id);
+    const targetWc = vocabWordCount(target);
+    const close = pool.filter(w => Math.abs(vocabWordCount(w) - targetWc) <= 1);
+    return sample(close.length >= n ? close : pool, n);
+  }
 
   // ---------- API ----------
   async function fetchJson(url) {
@@ -850,10 +866,15 @@
         bg = pageStruggle === 0 ? "var(--surface-2)" : ratio > 0.6 ? "var(--bad-soft)" : "var(--gold-soft)";
         col = pageStruggle === 0 ? "var(--text-muted)" : ratio > 0.6 ? "var(--bad)" : "var(--gold)";
       } else {
-        const matureCt = cs.filter(c => masteryStage(c) === "mature").length;
-        const ratio = matureCt / cs.length;
-        bg = ratio > 0.66 ? "var(--good-soft)" : ratio > 0.33 ? "var(--gold-soft)" : "var(--surface-2)";
-        col = ratio > 0.66 ? "var(--good)" : ratio > 0.33 ? "var(--gold)" : "var(--text-muted)";
+        // Weighted by actual mastery stage, not just a mature/not-mature
+        // split -- a page sitting entirely at "young" used to average out
+        // identical to a page of untouched new cards (both have zero
+        // MATURE cards), which silently contradicted the legend's own
+        // three-tier promise right above this grid.
+        const stageWeight = c => { const st = masteryStage(c); return st === "mature" ? 1 : st === "young" ? 0.55 : 0; };
+        const avgWeight = cs.reduce((sum, c) => sum + stageWeight(c), 0) / cs.length;
+        bg = avgWeight > 0.7 ? "var(--good-soft)" : avgWeight > 0.3 ? "var(--gold-soft)" : "var(--surface-2)";
+        col = avgWeight > 0.7 ? "var(--good)" : avgWeight > 0.3 ? "var(--gold)" : "var(--text-muted)";
       }
       return `<button class="mushaf-page-cell has-verses" data-page="${p}" style="background:${bg};color:${col};border-color:${col}" title="Tap to listen — ${cs.length} verse(s) on page ${p}">${p}</button>`;
     }).join("");
@@ -2375,7 +2396,7 @@
 
   // -- vocab mode: multiple choice, Arabic -> meaning --
   function renderVocabMcMeaning(host, card, word) {
-    const others = sample(vocabBank.filter(w => w.id !== word.id), 3);
+    const others = sampleVocabDistractors(word, 3);
     const options = shuffled([word, ...others]);
     host.innerHTML = `
       <div class="review-stage">
@@ -2408,7 +2429,7 @@
 
   // -- vocab mode: multiple choice, meaning -> Arabic --
   function renderVocabMcArabic(host, card, word) {
-    const others = sample(vocabBank.filter(w => w.id !== word.id), 3);
+    const others = sampleVocabDistractors(word, 3);
     const options = shuffled([word, ...others]);
     host.innerHTML = `
       <div class="review-stage">
@@ -2447,7 +2468,7 @@
     if (!ayahData) return renderVocabMcMeaning(host, card, word);
     const meta = surahList.find(s => s.number === surahNum);
 
-    const others = sample(vocabBank.filter(w => w.id !== word.id), 3);
+    const others = sampleVocabDistractors(word, 3);
     const options = shuffled([word, ...others]);
     host.innerHTML = `
       <div class="review-stage">
@@ -2485,7 +2506,7 @@
   // -- vocab mode: audio recognition --
   function renderVocabAudioRec(host, card, word) {
     if (!word.au) return renderVocabMcMeaning(host, card, word);
-    const others = sample(vocabBank.filter(w => w.id !== word.id), 3);
+    const others = sampleVocabDistractors(word, 3);
     const options = shuffled([word, ...others]);
     host.innerHTML = `
       <div class="review-stage">
