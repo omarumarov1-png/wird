@@ -23,6 +23,7 @@
   const CARDS_KEY = "wird-cards-v1";
   const SETTINGS_KEY = "wird-settings-v1";
   const STATS_KEY = "wird-stats-v1";
+  const ACHIEVEMENTS_KEY = "wird-achievements-v1";
 
   // Study-mode presets: how many NEW verses get introduced per day, and a
   // matched review cap so due-reviews don't bottleneck behind a fixed
@@ -91,11 +92,18 @@
   const screenEl = document.getElementById("screen");
   const topnavEl = document.getElementById("topnav");
 
+  // Voice Mirror needs real device APIs that not every browser has (older
+  // Safari in particular has patchy MediaRecorder support) -- checked once
+  // at load so the mic button simply never appears anywhere it wouldn't
+  // work, rather than appearing and failing.
+  const VOICE_MIRROR_SUPPORTED = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+
   let surahList = [];       // [{number, name, englishName, englishNameTranslation, numberOfAyahs, revelationType}]
   let cards = {};           // "surah:ayah" -> card object
   let settings = { mode: DEFAULT_STUDY_MODE };
   function currentModeConfig() { return STUDY_MODES[settings.mode] || STUDY_MODES[DEFAULT_STUDY_MODE]; }
   let stats = { streak: 0, lastStudyDate: null, totalReviews: 0 };
+  let achievements = { completedSurahs: [] }; // surah numbers, each recorded once, the moment every ayah the user added is mature
   let surahCache = {};      // "surahNum" -> {ar: [...], en: [...], audio: [...]}
   let wordsCache = {};      // "surah:ayah" -> [{ar, tr, en}, ...] (word-by-word, quran.com)
   let segmentsCache = {};   // "surahNum" -> { ayahNum: [[wordPos, startMsRelative, endMsRelative], ...] }
@@ -115,6 +123,7 @@
   }
 
   let session = null;       // { queue: [card,...], idx, total, revealed, currentMode }
+  let currentReviewCard = null; // whatever verse card is on screen right now, for Voice Mirror
   let currentAudio = null;
   let sardSession = null;   // { surah, verses: [card,...], idx, stumbles: Set, playing }
   let vocabSession = null;  // { queue: [vocabCard,...], idx, total }
@@ -135,10 +144,12 @@
     segmentsCache = load(SEGMENTS_CACHE_KEY, {});
     muraja = load(MURAJA_KEY, {});
     vocabCards = load(VOCAB_CARDS_KEY, {});
+    achievements = Object.assign({ completedSurahs: [] }, load(ACHIEVEMENTS_KEY, {}));
   }
   function saveCards() { save(CARDS_KEY, cards); pushToCloud(); }
   function saveSettings() { save(SETTINGS_KEY, settings); pushToCloud(); }
   function saveStats() { save(STATS_KEY, stats); pushToCloud(); }
+  function saveAchievements() { save(ACHIEVEMENTS_KEY, achievements); pushToCloud(); }
   function saveSurahCache() { save(SURAH_CACHE_KEY, surahCache); }
   function saveWordsCache() { save(WORDS_CACHE_KEY, wordsCache); }
   function saveSegmentsCache() { save(SEGMENTS_CACHE_KEY, segmentsCache); }
@@ -448,6 +459,7 @@
         if (card.reviewStep >= REVIEWING_ENCOUNTERS) {
           card.phase = "mature";
           card.interval = Math.round((card.interval || REVIEWING_GAPS[REVIEWING_GAPS.length - 1]) * card.ease);
+          if (card.surah !== undefined) checkSurahMastery(card.surah);
         } else {
           card.interval = REVIEWING_GAPS[card.reviewStep];
         }
@@ -469,6 +481,43 @@
     if (card.phase === "learning") return "learning";
     if (card.phase === "reviewing") return "young";
     return "mature";
+  }
+
+  // Fires the moment a card's own graduation to "mature" happens to be the
+  // LAST missing piece of its surah -- every ayah the user ever added for
+  // that surah, and not just this one, has to be mature too. Checked from
+  // real surahList.numberOfAyahs (fetched live from the Qur'an API), so a
+  // surah only counts complete when the user has genuinely added and
+  // matured every one of its verses, not just however many happen to be
+  // in their set.
+  function checkSurahMastery(surahNum) {
+    if (achievements.completedSurahs.includes(surahNum)) return;
+    const meta = surahList.find(s => s.number === surahNum);
+    if (!meta) return;
+    const surahCards = Object.values(cards).filter(c => c.surah === surahNum);
+    if (surahCards.length !== meta.numberOfAyahs) return;
+    if (!surahCards.every(c => masteryStage(c) === "mature")) return;
+    achievements.completedSurahs.push(surahNum);
+    saveAchievements();
+    setTimeout(() => showSurahMasteryCelebration(meta), 850);
+  }
+  function showSurahMasteryCelebration(meta) {
+    const overlay = document.getElementById("achievementOverlay");
+    if (!overlay) return;
+    overlay.innerHTML = `
+      <div class="achieve-card">
+        <div class="achieve-seal">﴾ ﴿</div>
+        <div class="achieve-kicker">Surah Complete</div>
+        <div class="achieve-name">${escapeHtml(meta.name)}</div>
+        <div class="achieve-sub">${escapeHtml(meta.englishName)} &middot; ${meta.numberOfAyahs} verses, fully matured</div>
+        <p class="achieve-note">Every verse has passed its full cure — seven encounters to learn, two more to confirm it held. This one is yours now.</p>
+        <button class="primary-btn" id="achieveCloseBtn" style="max-width:240px;margin:18px auto 0">Alhamdulillah</button>
+      </div>
+    `;
+    overlay.classList.add("visible");
+    const close = () => { overlay.classList.remove("visible"); overlay.innerHTML = ""; };
+    document.getElementById("achieveCloseBtn").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); }, { once: true });
   }
   // "3/7" while learning, "1/2" while reviewing, or null once mature/new
   // -- surfaced next to the rating row so the encounter-count rule stays
@@ -603,6 +652,25 @@
           <div class="stat-box"><b>${allCards.length}</b><span>in memorization</span></div>
           <div class="stat-box"><b>${matureCt}</b><span>mature</span></div>
         </div>
+        ${achievements.completedSurahs.length ? `
+          <div class="star-divider">${starSvg()}</div>
+          <div class="achievements-section">
+            <div class="muraja-heading">Completed Surahs</div>
+            <p class="muraja-sub">Every verse fully cured — seven encounters to learn, two more to confirm.</p>
+            <div class="badge-row">
+              ${achievements.completedSurahs.map(num => {
+                const meta = surahList.find(s => s.number === num);
+                if (!meta) return "";
+                return `
+                  <button class="surah-badge" data-surah="${num}" title="${escapeHtml(meta.englishName)} — start a sard">
+                    <span class="badge-ar">${escapeHtml(meta.name)}</span>
+                    <span class="badge-en">${escapeHtml(meta.englishName)}</span>
+                  </button>
+                `;
+              }).join("")}
+            </div>
+          </div>
+        ` : ""}
         ${murajaDue.length ? `
           <div class="star-divider">${starSvg()}</div>
           <div class="muraja-section">
@@ -636,6 +704,9 @@
     const libBtn = document.getElementById("goLibraryBtn");
     if (libBtn) libBtn.addEventListener("click", () => switchScreen("library"));
     document.querySelectorAll(".muraja-row").forEach(btn => {
+      btn.addEventListener("click", () => startSard(Number(btn.dataset.surah)));
+    });
+    document.querySelectorAll(".surah-badge").forEach(btn => {
       btn.addEventListener("click", () => startSard(Number(btn.dataset.surah)));
     });
   }
@@ -993,10 +1064,13 @@
         <button class="exit-btn" id="exitReviewBtn">&times;</button>
         <div class="progress-track"><div class="progress-fill" id="reviewProgressFill" style="width:0%"></div></div>
         <span class="combo-badge" id="comboBadge"></span>
+        ${VOICE_MIRROR_SUPPORTED ? `<button class="mic-btn" id="voiceMirrorBtn" aria-label="Voice Mirror — record and compare your own recitation" title="Voice Mirror">🎙</button>` : ""}
       </div>
       <div id="reviewHost"></div>
     `;
     document.getElementById("exitReviewBtn").addEventListener("click", () => { cancelAudio(); renderHome(); });
+    const micBtn = document.getElementById("voiceMirrorBtn");
+    if (micBtn) micBtn.addEventListener("click", () => { if (currentReviewCard) openVoiceMirror(currentReviewCard); });
   }
   function updateReviewProgress() {
     const pct = session.total ? Math.round((session.idx / session.total) * 100) : 0;
@@ -1015,6 +1089,7 @@
     sardSession = null;
     pageListenState = null;
     vocabSession = null;
+    currentReviewCard = null;
     clearReviewKeydownCleanup();
   }
   // Every review card that wires its own document-level keydown listener
@@ -1135,6 +1210,7 @@
     if (session.idx >= session.total) return renderSessionComplete();
     updateReviewProgress();
     const card = session.queue[session.idx];
+    currentReviewCard = card;
     const host = document.getElementById("reviewHost");
     if (!host) return;
 
@@ -2472,6 +2548,283 @@
     sel.addEventListener("change", () => setReciter(sel.value));
   }
 
+  // ---------- Voice Mirror: record yourself, A/B against the reciter ----------
+  // Nothing here is ever saved or synced -- the whole point is a private,
+  // throwaway mirror. The recording exists only as a local Blob for as
+  // long as this modal is open; closing it revokes the object URL and
+  // stops the microphone track. "Your take" gets a real waveform (decoded
+  // straight from the local recording, same-origin, no restrictions).
+  // The reciter's track intentionally does NOT attempt a real waveform --
+  // that would mean feeding a cross-origin CDN file into a Web Audio
+  // AnalyserNode, which needs CORS headers this app has no way to verify
+  // everyayah.com actually sends, so a broken analysis would either throw
+  // or silently show a flat line. A decorative equalizer that just
+  // pulses while it plays is honest about being decorative and can't
+  // ever misrepresent the audio.
+  let voiceMirrorState = null;
+  function pickRecorderMimeType() {
+    const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
+    for (let i = 0; i < candidates.length; i++) {
+      if (window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(candidates[i])) return candidates[i];
+    }
+    return "";
+  }
+  function openVoiceMirror(card) {
+    cancelAudio();
+    const overlay = document.getElementById("voiceMirrorOverlay");
+    if (!overlay) return;
+    voiceMirrorState = {
+      card, stream: null, recorder: null, chunks: [], audioCtx: null, analyser: null,
+      meterRafId: null, recordedUrl: null, recordTimer: null, mineAudio: null, reciterAudio: null,
+    };
+    overlay.innerHTML = `
+      <div class="vm-card">
+        <div class="vm-head">
+          <div>
+            <div class="vm-kicker">Voice Mirror</div>
+            <div class="vm-ref">${escapeHtml(refBadge(card))}</div>
+          </div>
+          <button class="modal-close" id="vmCloseBtn" aria-label="Close">&times;</button>
+        </div>
+        <div class="card-arabic-box" style="margin:14px 0"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
+        <div class="vm-record-zone" id="vmRecordZone">
+          <button class="vm-record-btn" id="vmRecordBtn" aria-label="Start recording">
+            <span class="vm-record-dot"></span>
+          </button>
+          <div class="vm-meter" id="vmMeter">${Array.from({ length: 20 }).map(() => `<span></span>`).join("")}</div>
+          <div class="vm-hint" id="vmHint">Tap to record yourself reciting this verse</div>
+        </div>
+        <div class="vm-compare" id="vmCompare" style="display:none">
+          <div class="vm-track">
+            <button class="vm-play-btn" id="vmPlayMine" type="button">▶</button>
+            <div class="vm-track-info">
+              <div class="vm-track-label">Your take</div>
+              <canvas class="vm-wave" id="vmWaveMine" width="240" height="34"></canvas>
+            </div>
+          </div>
+          <div class="vm-track">
+            <button class="vm-play-btn" id="vmPlayReciter" type="button">▶</button>
+            <div class="vm-track-info">
+              <div class="vm-track-label">Reciter</div>
+              <div class="vm-eq" id="vmEqReciter"><span></span><span></span><span></span><span></span><span></span></div>
+            </div>
+          </div>
+          <button class="vm-rerecord-btn" id="vmRerecordBtn" type="button">Record again</button>
+        </div>
+        <div class="vm-privacy">Nothing here is saved or uploaded — closing this discards the recording.</div>
+      </div>
+    `;
+    overlay.classList.add("visible");
+    document.getElementById("vmCloseBtn").addEventListener("click", closeVoiceMirror);
+    overlay.addEventListener("click", function overlayClick(e) { if (e.target === overlay) closeVoiceMirror(); });
+    document.getElementById("vmRecordBtn").addEventListener("click", toggleVoiceMirrorRecording);
+  }
+  function closeVoiceMirror() {
+    const overlay = document.getElementById("voiceMirrorOverlay");
+    if (!overlay) return;
+    teardownVoiceMirrorRecording();
+    if (voiceMirrorState) {
+      if (voiceMirrorState.recordedUrl) URL.revokeObjectURL(voiceMirrorState.recordedUrl);
+      if (voiceMirrorState.mineAudio) voiceMirrorState.mineAudio.pause();
+      if (voiceMirrorState.reciterAudio) voiceMirrorState.reciterAudio.pause();
+    }
+    voiceMirrorState = null;
+    overlay.classList.remove("visible");
+    overlay.innerHTML = "";
+  }
+  // Stops the mic track / audio context / meter loop without discarding
+  // a completed recording -- called both when actually done recording
+  // and as a safety net when the modal closes mid-recording.
+  function teardownVoiceMirrorRecording() {
+    if (!voiceMirrorState) return;
+    if (voiceMirrorState.meterRafId) cancelAnimationFrame(voiceMirrorState.meterRafId);
+    voiceMirrorState.meterRafId = null;
+    if (voiceMirrorState.recordTimer) clearTimeout(voiceMirrorState.recordTimer);
+    voiceMirrorState.recordTimer = null;
+    if (voiceMirrorState.stream) voiceMirrorState.stream.getTracks().forEach(t => t.stop());
+    voiceMirrorState.stream = null;
+    if (voiceMirrorState.audioCtx) voiceMirrorState.audioCtx.close().catch(() => {});
+    voiceMirrorState.audioCtx = null;
+    voiceMirrorState.analyser = null;
+  }
+  function toggleVoiceMirrorRecording() {
+    if (!voiceMirrorState) return;
+    if (voiceMirrorState.recorder && voiceMirrorState.recorder.state === "recording") {
+      voiceMirrorState.recorder.stop();
+    } else {
+      startVoiceMirrorRecording();
+    }
+  }
+  function startVoiceMirrorRecording() {
+    // Captured once, locally, rather than read back off the module-level
+    // voiceMirrorState inside the async callbacks below: getUserMedia is
+    // a promise, and a MediaRecorder's dataavailable/stop events can
+    // still be queued after the user has already closed the modal or
+    // started a second recording (Record again). Reading the SHARED
+    // mutable variable from inside those callbacks meant a stale event
+    // from an earlier session could fire against a `null` or
+    // already-superseded session and crash or corrupt state -- every
+    // callback below now checks it's still operating on THIS session
+    // (`voiceMirrorState === session`) before touching anything.
+    const session = voiceMirrorState;
+    if (!session) return;
+    const hint = document.getElementById("vmHint");
+    const recordBtn = document.getElementById("vmRecordBtn");
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      if (voiceMirrorState !== session) { stream.getTracks().forEach(t => t.stop()); return; } // superseded while permission was pending
+      session.stream = stream;
+      session.chunks = [];
+      const mimeType = pickRecorderMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      session.recorder = recorder;
+      recorder.addEventListener("dataavailable", function (e) {
+        if (voiceMirrorState !== session) return;
+        if (e.data && e.data.size > 0) session.chunks.push(e.data);
+      });
+      recorder.addEventListener("stop", function () { onVoiceMirrorRecordingStopped(session); });
+      recorder.start();
+
+      document.getElementById("vmRecordZone").classList.add("recording");
+      recordBtn.classList.add("live");
+      recordBtn.setAttribute("aria-label", "Stop recording");
+      hint.textContent = "Recording — tap again to stop";
+
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const audioCtx = new AudioCtx();
+      session.audioCtx = audioCtx;
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 128;
+      source.connect(analyser);
+      session.analyser = analyser;
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      const bars = document.getElementById("vmMeter").children;
+      function tick() {
+        if (voiceMirrorState !== session || !session.analyser) return;
+        analyser.getByteFrequencyData(data);
+        for (let i = 0; i < bars.length; i++) {
+          const idx = Math.floor((i / bars.length) * data.length);
+          const v = data[idx] / 255;
+          bars[i].style.height = Math.max(10, v * 100) + "%";
+        }
+        session.meterRafId = requestAnimationFrame(tick);
+      }
+      tick();
+
+      // hard cap so nobody accidentally leaves it running
+      session.recordTimer = setTimeout(function () {
+        if (recorder.state === "recording") recorder.stop();
+      }, 30000);
+    }).catch(function (err) {
+      if (voiceMirrorState !== session) return;
+      const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
+      hint.textContent = denied
+        ? "Microphone access was denied. Enable it in your browser's site settings to use Voice Mirror."
+        : "Couldn't reach a microphone on this device.";
+    });
+  }
+  function onVoiceMirrorRecordingStopped(session) {
+    if (voiceMirrorState !== session) return; // superseded (modal closed, or already re-recording) -- ignore this stale event
+    teardownVoiceMirrorRecording();
+    const zone = document.getElementById("vmRecordZone");
+    const recordBtn = document.getElementById("vmRecordBtn");
+    if (zone) zone.classList.remove("recording");
+    if (recordBtn) recordBtn.classList.remove("live");
+
+    const mimeType = session.recorder ? session.recorder.mimeType : "";
+    const blob = new Blob(session.chunks, mimeType ? { type: mimeType } : undefined);
+    if (!blob.size) {
+      const hint = document.getElementById("vmHint");
+      if (hint) hint.textContent = "That recording came out empty — tap to try again.";
+      return;
+    }
+    session.recordedUrl = URL.createObjectURL(blob);
+    showVoiceMirrorCompare(blob);
+  }
+  function showVoiceMirrorCompare(blob) {
+    const zone = document.getElementById("vmRecordZone");
+    const compare = document.getElementById("vmCompare");
+    if (zone) zone.style.display = "none";
+    if (compare) compare.style.display = "";
+
+    const mineAudio = new Audio(voiceMirrorState.recordedUrl);
+    voiceMirrorState.mineAudio = mineAudio;
+    const reciterAudio = new Audio(audioUrlFor(voiceMirrorState.card.surah, voiceMirrorState.card.ayah));
+    voiceMirrorState.reciterAudio = reciterAudio;
+
+    const playMineBtn = document.getElementById("vmPlayMine");
+    const playReciterBtn = document.getElementById("vmPlayReciter");
+    wirePlayToggle(playMineBtn, mineAudio, null, null);
+    wirePlayToggle(playReciterBtn, reciterAudio, null, document.getElementById("vmEqReciter"));
+
+    const rerecordBtn = document.getElementById("vmRerecordBtn");
+    if (rerecordBtn) rerecordBtn.addEventListener("click", resetVoiceMirrorRecording);
+
+    // draw the real waveform for "your take" from the actual recorded audio
+    blob.arrayBuffer().then(function (arrayBuffer) {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const decodeCtx = new AudioCtx();
+      decodeCtx.decodeAudioData(arrayBuffer).then(function (audioBuffer) {
+        const canvas = document.getElementById("vmWaveMine");
+        if (canvas) drawWaveformOnCanvas(canvas, audioBuffer);
+        decodeCtx.close().catch(function () {});
+      }).catch(function () { decodeCtx.close().catch(function () {}); });
+    }).catch(function () {});
+  }
+  function wirePlayToggle(btn, audioEl, onPlay, eqEl) {
+    if (!btn) return;
+    let playing = false;
+    audioEl.addEventListener("ended", reset);
+    audioEl.addEventListener("pause", reset);
+    btn.addEventListener("click", function () {
+      if (playing) { audioEl.pause(); return; }
+      // only one of the two tracks plays at a time
+      if (voiceMirrorState) {
+        if (voiceMirrorState.mineAudio && voiceMirrorState.mineAudio !== audioEl) voiceMirrorState.mineAudio.pause();
+        if (voiceMirrorState.reciterAudio && voiceMirrorState.reciterAudio !== audioEl) voiceMirrorState.reciterAudio.pause();
+      }
+      audioEl.currentTime = 0;
+      audioEl.play().catch(reset);
+      playing = true;
+      btn.textContent = "❚❚";
+      if (eqEl) eqEl.classList.add("playing");
+      if (onPlay) onPlay();
+    });
+    function reset() {
+      playing = false;
+      btn.textContent = "▶";
+      if (eqEl) eqEl.classList.remove("playing");
+    }
+  }
+  function drawWaveformOnCanvas(canvas, audioBuffer) {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const channel = audioBuffer.getChannelData(0);
+    const bars = 44;
+    const blockSize = Math.max(1, Math.floor(channel.length / bars));
+    const cs = getComputedStyle(document.body);
+    ctx.fillStyle = cs.getPropertyValue("--emerald").trim() || "#0e6d59";
+    const barWidth = w / bars;
+    for (let i = 0; i < bars; i++) {
+      let max = 0;
+      const start = i * blockSize;
+      for (let j = 0; j < blockSize; j++) {
+        const v = Math.abs(channel[start + j] || 0);
+        if (v > max) max = v;
+      }
+      const barH = Math.max(2, max * h);
+      ctx.fillRect(i * barWidth, (h - barH) / 2, Math.max(1, barWidth - 1.5), barH);
+    }
+  }
+  function resetVoiceMirrorRecording() {
+    if (!voiceMirrorState) return;
+    if (voiceMirrorState.recordedUrl) URL.revokeObjectURL(voiceMirrorState.recordedUrl);
+    if (voiceMirrorState.mineAudio) voiceMirrorState.mineAudio.pause();
+    if (voiceMirrorState.reciterAudio) voiceMirrorState.reciterAudio.pause();
+    openVoiceMirror(voiceMirrorState.card);
+  }
+
   // ---------- study-mode settings modal ----------
   function fmtCap(n) { return n === Infinity ? "Unlimited" : String(n); }
   function openSettingsModal() {
@@ -2519,7 +2872,15 @@
   // wordsCache are pure performance caches, always re-derivable from the
   // same public APIs, so syncing them would just waste Firestore writes.
   function buildProgressPayload() {
-    return { cards, muraja, stats, settings, reciter: currentReciter, vocabCards };
+    return { cards, muraja, stats, settings, reciter: currentReciter, vocabCards, achievements };
+  }
+  // A completed surah is permanent -- keep the union from both sides
+  // rather than picking one, so a badge earned on either device survives
+  // a sync regardless of which side happens to be "newer."
+  function mergeAchievements(local, remote) {
+    const localList = (local && local.completedSurahs) || [];
+    const remoteList = (remote && remote.completedSurahs) || [];
+    return { completedSurahs: Array.from(new Set([...localList, ...remoteList])) };
   }
 
   // Merge, not overwrite: this app's whole reason for syncing is that a
@@ -2566,11 +2927,13 @@
     }
     if (remote.settings && STUDY_MODES[remote.settings.mode]) settings = Object.assign({}, settings, remote.settings);
     if (remote.reciter && RECITERS[remote.reciter]) currentReciter = remote.reciter;
+    achievements = mergeAchievements(achievements, remote.achievements);
     save(CARDS_KEY, cards);
     save(VOCAB_CARDS_KEY, vocabCards);
     save(MURAJA_KEY, muraja);
     save(STATS_KEY, stats);
     save(SETTINGS_KEY, settings);
+    save(ACHIEVEMENTS_KEY, achievements);
     localStorage.setItem(RECITER_KEY, currentReciter);
   }
   function pushToCloud() {
