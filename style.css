@@ -257,8 +257,12 @@ body {
 .sard-num { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; width: 24px; text-align: right; flex-shrink: 0; }
 .sard-dots { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .sard-rating-row { display: flex; flex-direction: column; gap: 10px; max-width: 340px; margin: 0 auto; }
-.sard-rate-btn { border: 1.5px solid var(--border); background: var(--surface); border-radius: 12px; padding: 13px 16px; text-align: left; cursor: pointer; }
+.sard-rate-btn {
+  border: 1.5px solid var(--border); background: var(--surface); border-radius: 12px;
+  padding: 13px 16px; text-align: left; cursor: pointer; font-size: 0.95rem; font-weight: 600; color: var(--text);
+}
 .sard-rate-btn:hover { border-color: var(--gold); }
+.sard-rate-btn .sub { display: block; font-size: 0.78rem; font-weight: 400; color: var(--text-muted); margin-top: 2px; }
 
 /* ---------- page listen (passive follow-along) ---------- */
 .listen-lines { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }

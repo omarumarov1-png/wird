@@ -515,11 +515,30 @@
     if (!surahCards.every(c => masteryStage(c) === "mature")) return;
     achievements.completedSurahs.push(surahNum);
     saveAchievements();
-    setTimeout(() => showSurahMasteryCelebration(meta), 850);
+    achievementQueue.push(meta);
+    setTimeout(processAchievementQueue, 850);
   }
-  function showSurahMasteryCelebration(meta) {
+  // Cards from several surahs are routinely interleaved in one day's
+  // queue, so it's entirely realistic for a second surah to complete
+  // just a rating or two after the first. Each completion used to just
+  // overwrite the overlay's innerHTML outright -- if a second one landed
+  // before the first was dismissed, the FIRST celebration was silently
+  // replaced and that achievement was never actually seen. A real queue
+  // means every completion gets shown, one at a time, in order.
+  let achievementQueue = [];
+  let achievementShowing = false;
+  function processAchievementQueue() {
+    if (achievementShowing || !achievementQueue.length) return;
+    const meta = achievementQueue.shift();
+    achievementShowing = true;
+    showSurahMasteryCelebration(meta, () => {
+      achievementShowing = false;
+      if (achievementQueue.length) setTimeout(processAchievementQueue, 500);
+    });
+  }
+  function showSurahMasteryCelebration(meta, onClose) {
     const overlay = document.getElementById("achievementOverlay");
-    if (!overlay) return;
+    if (!overlay) { if (onClose) onClose(); return; }
     overlay.innerHTML = `
       <div class="achieve-card">
         <div class="achieve-seal">﴾ ﴿</div>
@@ -531,9 +550,20 @@
       </div>
     `;
     overlay.classList.add("visible");
-    const close = () => { overlay.classList.remove("visible"); overlay.innerHTML = ""; };
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      overlay.classList.remove("visible");
+      overlay.innerHTML = "";
+      if (onClose) onClose();
+    };
     document.getElementById("achieveCloseBtn").addEventListener("click", close);
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); }, { once: true });
+    overlay.addEventListener("click", function backdropClick(e) {
+      if (e.target !== overlay) return;
+      overlay.removeEventListener("click", backdropClick);
+      close();
+    });
   }
   // "3/7" while learning, "1/2" while reviewing, or null once mature/new
   // -- surfaced next to the rating row so the encounter-count rule stays
@@ -2053,7 +2083,7 @@
           <p>${meta ? escapeHtml(meta.englishName) : "This surah"} — ${verses.length} verses${stumbles.size ? `, ${stumbles.size} marked as rough` : ""}. Your honest answer sets when this surah comes back around.</p>
           <div class="sard-rating-row">
             ${Object.entries(SARD_RATINGS).map(([key, r]) => `
-              <button class="rate-btn sard-rate-btn" data-rating="${key}">${r.label}<span class="sub">${r.sub}</span></button>
+              <button class="sard-rate-btn" data-rating="${key}">${escapeHtml(r.label)}<span class="sub">${escapeHtml(r.sub)}</span></button>
             `).join("")}
           </div>
         </div>
