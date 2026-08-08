@@ -491,6 +491,22 @@
     saveStats();
   }
 
+  // Every "again" rating, and a card's very first learning success
+  // (LEARNING_GAPS[0] === 0), sets dueDate to *today* -- meant to be
+  // re-encountered in this same sitting, not stranded until the user
+  // happens to manually restart a session. session.queue/vocabSession.queue
+  // are otherwise frozen at session start (built once by computeQueue()/
+  // computeVocabQueue() in startWird()/startVocabReview()), so without this
+  // a same-day repeat would just silently vanish -- the session would end
+  // and tell the user to "come back tomorrow" while a same-day repeat sat
+  // unseen, undermining the whole "encounter N times while learning" model.
+  function requeueIfDueToday(sess, card) {
+    if (sess && card.dueDate <= todayISO()) {
+      sess.queue.push(card);
+      sess.total++;
+    }
+  }
+
   function masteryStage(card) {
     ensurePhaseFields(card);
     if (card.reps === 0) return "new";
@@ -1400,6 +1416,7 @@
     bumpCombo(correct);
     applyRating(card, correct ? "good" : "again");
     saveCards();
+    requeueIfDueToday(session, card);
     session.idx++;
     setTimeout(() => renderNextCard(), correct ? 850 : 1500);
   }
@@ -1407,6 +1424,7 @@
     bumpCombo(correct);
     applyRating(card, correct ? "good" : "again");
     saveVocabCards();
+    requeueIfDueToday(vocabSession, card);
     vocabSession.idx++;
     setTimeout(() => renderNextVocabCard(), correct ? 850 : 1500);
   }
@@ -1481,6 +1499,7 @@
       bumpCombo(ratingKey === "good");
       zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
       applyRating(card, ratingKey);
+      requeueIfDueToday(session, card);
       saveCards();
       session.idx++;
       setTimeout(() => renderNextCard(), 340);
@@ -1546,6 +1565,7 @@
       bumpCombo(ratingKey === "good");
       zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
       applyRating(card, ratingKey);
+      requeueIfDueToday(session, card);
       saveCards();
       session.idx++;
       setTimeout(() => renderNextCard(), 340);
@@ -2418,6 +2438,7 @@
       bumpCombo(ratingKey === "good");
       zone.classList.add(ratingKey === "good" ? "story-committed-good" : "story-committed-again");
       applyRating(card, ratingKey);
+      requeueIfDueToday(vocabSession, card);
       saveVocabCards();
       vocabSession.idx++;
       setTimeout(() => renderNextVocabCard(), 340);
