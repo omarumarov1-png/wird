@@ -1190,25 +1190,64 @@
   function clearReviewKeydownCleanup() {
     if (activeReviewKeydownCleanup) { activeReviewKeydownCleanup(); activeReviewKeydownCleanup = null; }
   }
-  // A previous version of this routed every play() through a fetch()-then-
-  // blob step (to help offline caching) and separately, on top of that, a
-  // background "warm the cache" fetch fired on every single play alongside
-  // the real <audio> stream -- doubling network usage for every play and a
-  // plausible cause of the exact "audio often just doesn't work" reports
-  // this was supposed to fix, never mind offline. Both are gone. This is
-  // deliberately back to the simplest thing that reliably works: a plain
-  // <audio src>, played directly from a real user gesture (every call site
-  // below is wired to an explicit tap, never autoplay -- see the "no
-  // autoplay" notes on the story-mode render functions). True offline
-  // audio playback remains a known, unsolved limitation rather than
-  // something papered over with unverified complexity.
+  // Offline audio, done carefully this time. The earlier attempt broke
+  // playback outright (online included) by gating every single play() on a
+  // fetch()-then-blob step FIRST -- meaning any hiccup in that step delayed
+  // or blocked the primary path itself. This version never does that: the
+  // primary path is always a plain <audio src>, played directly, exactly
+  // as it's always reliably worked. Caching is entirely a SIDE EFFECT that
+  // can never block or compete with real playback:
+  //   - proactively, only when navigator.onLine is already false, so a
+  //     genuinely-offline session skips a doomed network attempt and goes
+  //     straight to whatever's cached, instead of adding a stall+fallback;
+  //   - reactively, on a real 'error' event, in case onLine lied;
+  //   - and the cache itself is only ever warmed AFTER a play finishes
+  //     successfully (the 'ended' event), never alongside a live stream,
+  //     so it can't contend for bandwidth with the audio someone is
+  //     actually listening to right now.
+  // The warm fetch uses no-cors mode, which -- unlike a normal fetch() --
+  // never fails just because a CDN doesn't send Access-Control-Allow-
+  // Origin (the same long-standing browser exception that lets a plain
+  // <audio src> load cross-origin media at all); the response comes back
+  // opaque (no readable status), but the bytes are real and blob-able, and
+  // the Service Worker still caches them for next time regardless. Each
+  // unique URL is only ever warmed once per page load.
+  const audioBlobUrlCache = new Map();
+  function warmAudioCache(url) {
+    if (audioBlobUrlCache.has(url)) return;
+    audioBlobUrlCache.set(url, "pending");
+    fetch(url, { mode: "no-cors" }).then((res) => {
+      if (!res.ok && res.type !== "opaque") { audioBlobUrlCache.delete(url); return null; }
+      return res.blob();
+    }).then((blob) => {
+      if (blob && blob.size) audioBlobUrlCache.set(url, URL.createObjectURL(blob));
+      else audioBlobUrlCache.delete(url);
+    }).catch(() => audioBlobUrlCache.delete(url));
+  }
+  function cachedBlobFor(url) {
+    const v = audioBlobUrlCache.get(url);
+    return v && v !== "pending" ? v : null;
+  }
+
   function playAudio(url, rate, onEnd) {
     cancelAudio();
-    const audio = new Audio(url);
+    const offlineBlob = !navigator.onLine ? cachedBlobFor(url) : null;
+    const audio = new Audio(offlineBlob || url);
     audio.playbackRate = rate || 1;
     currentAudio = audio;
-    audio.addEventListener("ended", () => { if (onEnd) onEnd(); }, { once: true });
-    audio.play().catch(() => { if (onEnd) onEnd(); });
+    let settled = false;
+    const finish = () => { if (settled) return; settled = true; if (onEnd) onEnd(); };
+    audio.addEventListener("ended", () => {
+      finish();
+      if (!offlineBlob) warmAudioCache(url);
+    }, { once: true });
+    audio.addEventListener("error", () => {
+      if (currentAudio !== audio || settled) return;
+      const cached = !offlineBlob && cachedBlobFor(url);
+      if (cached) { audio.src = cached; audio.play().catch(finish); }
+      else finish();
+    }, { once: true });
+    audio.play().catch(finish);
     return audio;
   }
 
@@ -1218,14 +1257,18 @@
   // timing source exists (Alafasy only) AND the container actually has
   // data-pos word spans (i.e. word data was loaded) -- silently falls
   // back to plain playback otherwise, same graceful-degradation spirit
-  // as every other optional-data feature in this app.
+  // as every other optional-data feature in this app. Same offline
+  // caching approach as playAudio() above -- see the note there.
   async function playAudioWithHighlight(surah, ayah, containerEl, onEnd) {
     const segByAyah = await ensureSegmentsLoaded(surah).catch(() => null);
     const segments = segByAyah && segByAyah[ayah];
     cancelAudio();
-    const audio = new Audio(audioUrlFor(surah, ayah));
+    const url = audioUrlFor(surah, ayah);
+    const offlineBlob = !navigator.onLine ? cachedBlobFor(url) : null;
+    const audio = new Audio(offlineBlob || url);
     currentAudio = audio;
     let rafId = null;
+    let settled = false;
     function clearHighlight() {
       if (containerEl) containerEl.querySelectorAll(".word-playing").forEach(el => el.classList.remove("word-playing"));
     }
@@ -1243,9 +1286,17 @@
       rafId = requestAnimationFrame(tick);
     }
     audio.addEventListener("play", () => { if (segments) rafId = requestAnimationFrame(tick); });
-    const settle = () => { if (rafId) cancelAnimationFrame(rafId); clearHighlight(); if (onEnd) onEnd(); };
-    audio.addEventListener("ended", settle, { once: true });
-    audio.addEventListener("error", settle, { once: true });
+    const settle = () => { if (settled) return; settled = true; if (rafId) cancelAnimationFrame(rafId); clearHighlight(); if (onEnd) onEnd(); };
+    audio.addEventListener("ended", () => {
+      settle();
+      if (!offlineBlob) warmAudioCache(url);
+    }, { once: true });
+    audio.addEventListener("error", () => {
+      if (currentAudio !== audio || settled) return;
+      const cached = !offlineBlob && cachedBlobFor(url);
+      if (cached) { audio.src = cached; audio.play().catch(settle); }
+      else settle();
+    }, { once: true });
     audio.play().catch(settle);
     return audio;
   }
@@ -2932,8 +2983,17 @@
 
     const mineAudio = new Audio(voiceMirrorState.recordedUrl);
     voiceMirrorState.mineAudio = mineAudio;
-    const reciterAudio = new Audio(audioUrlFor(voiceMirrorState.card.surah, voiceMirrorState.card.ayah));
+    // Same offline caching approach as playAudio() -- see the note there.
+    const reciterUrl = audioUrlFor(voiceMirrorState.card.surah, voiceMirrorState.card.ayah);
+    const reciterOfflineBlob = !navigator.onLine ? cachedBlobFor(reciterUrl) : null;
+    const reciterAudio = new Audio(reciterOfflineBlob || reciterUrl);
     voiceMirrorState.reciterAudio = reciterAudio;
+    reciterAudio.addEventListener("ended", () => { if (!reciterOfflineBlob) warmAudioCache(reciterUrl); });
+    reciterAudio.addEventListener("error", () => {
+      if (voiceMirrorState.reciterAudio !== reciterAudio) return;
+      const cached = !reciterOfflineBlob && cachedBlobFor(reciterUrl);
+      if (cached) reciterAudio.src = cached;
+    });
 
     const playMineBtn = document.getElementById("vmPlayMine");
     const playReciterBtn = document.getElementById("vmPlayReciter");
