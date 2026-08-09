@@ -118,6 +118,11 @@ body {
 .topbar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
   padding: 14px 22px;
+  /* installed-on-iPhone only: the status-bar-style meta tag lets our own
+     background show through under the notch/Dynamic Island, so the real
+     topbar content needs its own push clear of it. env() is 0px in an
+     ordinary browser tab, so this is a no-op there. */
+  padding-top: max(14px, env(safe-area-inset-top));
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface) 90%, transparent);
   backdrop-filter: blur(8px);
@@ -310,7 +315,9 @@ body {
 .back-btn:hover { color: var(--text); }
 
 /* ---------- review session ---------- */
-.review-bar { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 61px; z-index: 20; }
+/* top offset tracks .topbar's own safe-area growth (see .topbar) so this
+   still sticks directly beneath it, notch or no notch. */
+.review-bar { display: flex; align-items: center; gap: 14px; padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: calc(61px + max(0px, env(safe-area-inset-top) - 14px)); z-index: 20; }
 .exit-btn { background: none; border: none; font-size: 1.3rem; color: var(--text-muted); cursor: pointer; line-height: 1; }
 .progress-track { flex: 1; height: 7px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--emerald), var(--gold)); border-radius: 99px; transition: width 0.3s ease; }
@@ -499,6 +506,19 @@ body {
 
 
 .phase-progress { text-align: center; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.03em; color: var(--text-muted); margin-top: 24px; }
+
+/* "Can't listen right now" -- swaps the current audio exercise for a
+   silent one (or skips the card, if no silent alternative is eligible
+   yet) without applying any rating. Quiet by design: a text link, not a
+   button competing with the real swipe/tap interaction. */
+.cant-listen-btn {
+  display: block; margin: 14px auto 0; background: none; border: none; cursor: pointer;
+  font-size: 0.78rem; color: var(--text-muted); text-decoration: underline; text-underline-offset: 3px;
+  padding: 6px 10px; font-family: var(--font-ui);
+}
+.cant-listen-btn:hover { color: var(--text); }
+.story-swipe-zone .cant-listen-btn { color: rgba(255,255,255,0.75); }
+.story-swipe-zone .cant-listen-btn:hover { color: #fff; }
 
 /* chain test */
 .chain-context { background: var(--surface-2); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; text-align: center; }

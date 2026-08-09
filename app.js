@@ -1295,7 +1295,10 @@
     const mutashabihMatch = findMutashabih(card);
     let mode = await pickMode(card);
     if (mutashabihMatch && masteryStage(card) !== "new" && Math.random() < 0.4) mode = "mutashabih";
+    renderCardInMode(host, card, mode, mutashabihMatch);
+  }
 
+  function renderCardInMode(host, card, mode, mutashabihMatch) {
     if (mode === "listen") return renderListenRecall(host, card);
     if (mode === "fade") return renderFadeRecall(host, card);
     if (mode === "chain") return renderChainTest(host, card);
@@ -1306,6 +1309,44 @@
     if (mode === "sequence") return renderSequence(host, card);
     if (mode === "cloze") return renderCloze(host, card);
     return renderListenRecall(host, card);
+  }
+
+  // The two "story" modes autoplay recitation audio the instant they render
+  // (Listen & Recall loops it, Fade Recall plays it once) -- genuinely
+  // disruptive if the user can't have sound on right now (a quiet room, a
+  // public place). "Can't listen now" re-rolls the SAME card into whichever
+  // of its other eligible modes doesn't autoplay audio, with no rating
+  // applied (the user never got a fair attempt at this one). A brand-new
+  // card has no non-audio mode at all -- Listen & Recall is deliberately
+  // the only way new material gets introduced -- so there's nothing fair to
+  // swap in; skip the whole card for this sitting instead. Either way this
+  // never touches the card's schedule, so it comes right back once the user
+  // can actually listen again.
+  const AUDIO_VERSE_MODES = ["listen", "fade"];
+  function skipListeningExercise(card) {
+    cancelAudio();
+    clearReviewKeydownCleanup();
+    const host = document.getElementById("reviewHost");
+    if (!host) return;
+    const silent = eligibleModes(card).filter(m => !AUDIO_VERSE_MODES.includes(m));
+    if (!silent.length) {
+      session.idx++;
+      renderNextCard();
+      return;
+    }
+    const mode = silent[Math.floor(Math.random() * silent.length)];
+    renderCardInMode(host, card, mode, null);
+  }
+  function cantListenBtnHtml() {
+    return `<button type="button" class="cant-listen-btn" id="cantListenBtn">Can't listen right now</button>`;
+  }
+  // onSettle lets the caller flip its own local `settled` flag first, so a
+  // loop/timer chain already in flight (Listen & Recall's replay loop,
+  // Fade Recall's single autoplay) doesn't fire again into whatever
+  // different, non-audio exercise gets swapped in underneath it.
+  function wireCantListenBtn(card, onSettle) {
+    const btn = document.getElementById("cantListenBtn");
+    if (btn) btn.addEventListener("click", () => { if (onSettle) onSettle(); skipListeningExercise(card); });
   }
 
   function refBadge(card) {
@@ -1466,12 +1507,14 @@
             <div class="story-loop-indicator" id="loopIndicator"><span class="pulse-dot"></span>Swipe right when ready, left to repeat</div>
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
             <div class="card-translation">${escapeHtml(card.translation)}</div>
+            ${cantListenBtnHtml()}
           </div>
         </div>
       </div>
     `;
     const zone = document.getElementById("storySwipeZone");
     wireWordTooltips(zone);
+    wireCantListenBtn(card, () => { settled = true; });
 
     function loopPlay() {
       if (settled) return;
@@ -1542,12 +1585,14 @@
             <div class="story-loop-indicator">Recite the missing words, tap to check</div>
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" id="fadeArabic">${faded}</div></div>
             <div class="card-translation" id="fadeTranslation"></div>
+            ${cantListenBtnHtml()}
           </div>
         </div>
       </div>
     `;
     const zone = document.getElementById("storySwipeZone");
     wireWordTooltips(zone);
+    wireCantListenBtn(card, () => { settled = true; });
     playAudio(audioUrlFor(card.surah, card.ayah), 1);
     document.getElementById("fadeArabic").addEventListener("click", (e) => {
       e.currentTarget.classList.remove("tap-to-check");
@@ -2376,12 +2421,40 @@
     if (!host) return;
     if (!word) { vocabSession.idx++; return renderNextVocabCard(); }
     const mode = pickVocabMode(card, word);
+    renderVocabCardInMode(host, card, word, mode);
+  }
+
+  function renderVocabCardInMode(host, card, word, mode) {
     if (mode === "flash") return renderVocabFlash(host, card, word);
     if (mode === "mc-meaning") return renderVocabMcMeaning(host, card, word);
     if (mode === "mc-arabic") return renderVocabMcArabic(host, card, word);
     if (mode === "context") return renderVocabContext(host, card, word);
     if (mode === "audio-rec") return renderVocabAudioRec(host, card, word);
     return renderVocabFlash(host, card, word);
+  }
+
+  // Same "Can't listen now" escape hatch as the verse review side (see
+  // skipListeningExercise), for the two vocab modes that autoplay the
+  // word's audio: Flashcard and Listen & Identify.
+  const AUDIO_VOCAB_MODES = ["flash", "audio-rec"];
+  function skipListeningVocabExercise(card, word) {
+    cancelAudio();
+    clearReviewKeydownCleanup();
+    const host = document.getElementById("vocabReviewHost");
+    if (!host) return;
+    const silent = vocabEligibleModes(card).filter(m => !AUDIO_VOCAB_MODES.includes(m));
+    if (!silent.length) {
+      vocabSession.idx++;
+      renderNextVocabCard();
+      return;
+    }
+    let mode = silent[Math.floor(Math.random() * silent.length)];
+    if (mode === "context" && (!word.occ || !word.occ.length)) mode = "mc-meaning";
+    renderVocabCardInMode(host, card, word, mode);
+  }
+  function wireCantListenBtnVocab(card, word, onSettle) {
+    const btn = document.getElementById("cantListenBtn");
+    if (btn) btn.addEventListener("click", () => { if (onSettle) onSettle(); skipListeningVocabExercise(card, word); });
   }
 
   function vocabPlayBtnHtml(id) { return `<div class="audio-row"><button class="play-btn" id="vocabPlayBtn">▶</button></div>`; }
@@ -2414,11 +2487,13 @@
             <div class="story-loop-indicator">Recall the meaning, tap to check</div>
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" dir="rtl" id="vocabFlashWord">${escapeHtml(word.ar)}</div></div>
             <div class="card-translation" id="vocabFlashMeaning"></div>
+            ${cantListenBtnHtml()}
           </div>
         </div>
       </div>
     `;
     const zone = document.getElementById("storySwipeZone");
+    wireCantListenBtnVocab(card, word, () => { settled = true; });
     const playWord = () => { if (word.au) playAudio(`https://audio.qurancdn.com/${word.au}`, 1); };
     playWord();
     document.getElementById("vocabFlashWord").addEventListener("click", (e) => {
@@ -2578,11 +2653,13 @@
           ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
         </div>
         <div id="vocabAudioFeedback"></div>
+        ${cantListenBtnHtml()}
         ${phaseProgressHtml(card)}
       </div>
     `;
     wireVocabPlay(word);
     document.getElementById("vocabPlayBtn").click();
+    wireCantListenBtnVocab(card, word);
     let answered = false;
     document.querySelectorAll("#vocabAudioOptions .option").forEach(btn => {
       btn.addEventListener("click", () => {

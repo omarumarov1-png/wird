@@ -16,6 +16,38 @@
 
   const APP_ID = "wird";
   const SDK = "https://www.gstatic.com/firebasejs/10.14.1/";
+
+  // Races any promise against a timeout, so a flaky/hanging connection
+  // (e.g. Wi-Fi that's associated but has no real internet, DNS silently
+  // stalling) behaves the same as a cleanly-rejected offline fetch instead
+  // of leaving the loading screen up indefinitely. A genuinely offline
+  // browser usually rejects fetch() fast on its own -- this exists for the
+  // slower, ambiguous case in between.
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timed out")), ms)),
+    ]);
+  }
+  // Once a uid has been confirmed approved while genuinely online, that
+  // fact is cached locally so a later offline launch can trust it instead
+  // of either hanging on a Firestore read that will never resolve, or
+  // wrongly bouncing an already-approved user to the "awaiting approval"
+  // screen just because the network happened to be down at that moment. A
+  // uid that was never successfully verified online stays gated exactly as
+  // before -- this only ever widens what a PREVIOUSLY-confirmed user can do
+  // offline, never what a never-verified one can.
+  const APPROVED_CACHE_KEY = "wird-approved-uids-v1";
+  function loadApprovedCache() {
+    try { return JSON.parse(localStorage.getItem(APPROVED_CACHE_KEY) || "{}"); } catch (e) { return {}; }
+  }
+  function cacheApproved(uid) {
+    try {
+      const c = loadApprovedCache();
+      c[uid] = true;
+      localStorage.setItem(APPROVED_CACHE_KEY, JSON.stringify(c));
+    } catch (e) { /* storage full/unavailable -- offline fallback just won't have this uid cached */ }
+  }
   // The owner's account is always auto-approved (and self-heals if the
   // Firestore flag is ever accidentally left off) — everyone else who signs
   // in starts as "pending" until approved manually via the Firebase Console:
@@ -69,11 +101,11 @@
   (async () => {
     let firebaseApp, authApi, fsApi;
     try {
-      const [{ initializeApp }, authNs, fsNs] = await Promise.all([
+      const [{ initializeApp }, authNs, fsNs] = await withTimeout(Promise.all([
         import(SDK + "firebase-app.js"),
         import(SDK + "firebase-auth.js"),
         import(SDK + "firebase-firestore.js"),
-      ]);
+      ]), 6000);
       authApi = authNs;
       fsApi = fsNs;
       firebaseApp = initializeApp(cfg);
@@ -219,7 +251,10 @@
         window.CloudSync.isOwner = isOwner;
         let approved = isOwner;
         try {
-          const existing = await getDoc(ref);
+          // Timeout-guarded: a returning user with a cached Auth session
+          // but no real network shouldn't sit on the loading screen
+          // waiting for a Firestore read that's never going to resolve.
+          const existing = await withTimeout(getDoc(ref), 5000);
           const patch = {
             email: user.email || null,
             displayName: user.displayName || null,
@@ -231,9 +266,21 @@
           } else if (isOwner && existing.data().approved !== true) {
             patch.approved = true; // never let the owner get locked out
           }
-          await setDoc(ref, patch, { merge: true });
+          // Fire-and-forget: this is a profile "touch", nothing downstream
+          // depends on it finishing, so it shouldn't be able to hang the
+          // gate either.
+          setDoc(ref, patch, { merge: true }).catch(() => { /* offline — profile touch skipped */ });
           approved = isOwner || (existing.exists() ? existing.data().approved === true : isOwner);
-        } catch (e) { /* offline — profile touch skipped, fall back to isOwner only */ }
+        } catch (e) {
+          // Offline, or the read timed out -- fall back to the last time
+          // this exact uid was confirmed approved while online, rather
+          // than either hanging here or bouncing an already-approved user
+          // to the pending screen just because the network is down right
+          // now. A uid that was never successfully verified stays gated,
+          // same as always.
+          approved = isOwner || loadApprovedCache()[user.uid] === true;
+        }
+        if (approved) cacheApproved(user.uid);
 
         if (!approved) {
           hideLoading();
