@@ -1159,6 +1159,72 @@
 
   function cancelAudio() {
     if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    clearMediaSession();
+  }
+
+  // ---------- Media Session: lock-screen / Bluetooth / car controls ----------
+  // A serious hifz app is routinely used with the phone locked or the
+  // screen off -- in a pocket during a commute, with earbuds, over car
+  // Bluetooth. Without this, the only way to pause or move between verses
+  // is unlocking the phone and finding the right on-screen button again.
+  // This wires real title/reciter metadata and play/pause/prev/next into
+  // the same OS-level media surface every music and podcast app uses.
+  function surahLabel(num) {
+    const meta = surahList.find(s => s.number === num);
+    return meta ? meta.englishName : `Surah ${num}`;
+  }
+  // Every ayah URL from audioUrlFor() ends in {surah:03d}{ayah:03d}.mp3 --
+  // parsed back out here so playAudio()/playAudioWithHighlight() can tag
+  // the media session from the URL alone, without threading surah/ayah
+  // through every one of their many call sites. Non-ayah audio (vocab
+  // words, Voice Mirror's own recording) just doesn't match and is
+  // silently skipped, which is correct -- those aren't verses.
+  function tagMediaSessionFromUrl(url) {
+    const m = /(\d{3})(\d{3})\.mp3$/.exec(url);
+    if (m) updateMediaSession(Number(m[1]), Number(m[2]));
+  }
+  function updateMediaSession(surah, ayah) {
+    if (!("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: `${surahLabel(surah)} — Ayah ${ayah}`,
+        artist: (RECITERS[currentReciter] && RECITERS[currentReciter].name) || "",
+        album: "Wird",
+        artwork: [
+          { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "icons/icon-512.png", sizes: "512x512", type: "image/png" },
+        ],
+      });
+      navigator.mediaSession.playbackState = "playing";
+    } catch (e) { /* MediaMetadata unsupported/blocked -- this is a bonus, never required for playback itself */ }
+  }
+  function clearMediaSession() {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = "none";
+  }
+  function wireMediaSessionActions() {
+    if (!("mediaSession" in navigator) || !navigator.mediaSession.setActionHandler) return;
+    const safeHandler = (action, fn) => {
+      try { navigator.mediaSession.setActionHandler(action, fn); }
+      catch (e) { /* action not supported on this platform -- fine, it just won't appear */ }
+    };
+    safeHandler("play", () => {
+      if (!currentAudio) return;
+      currentAudio.play().catch(() => {});
+      navigator.mediaSession.playbackState = "playing";
+    });
+    safeHandler("pause", () => {
+      if (!currentAudio) return;
+      currentAudio.pause();
+      navigator.mediaSession.playbackState = "paused";
+    });
+    // Prev/next only make real sense inside Sard's fixed verse sequence --
+    // a lone review card has no "next" to speak of, so these are silent
+    // no-ops outside a Sard session rather than doing something surprising.
+    safeHandler("previoustrack", () => { if (sardSession) retreatSard(); });
+    safeHandler("nexttrack", () => {
+      if (sardSession) advanceSard(sardSession.playing);
+    });
   }
   // Called at the top of every top-level screen render so leftover state
   // from whichever session-like flow (verse review, sard, page-listen,
@@ -1296,6 +1362,7 @@
     });
     audio.addEventListener("error", handleError);
     audio.play().catch(handleError);
+    tagMediaSessionFromUrl(url);
     return audio;
   }
 
@@ -1371,6 +1438,7 @@
     });
     audio.addEventListener("error", handleError);
     audio.play().catch(handleError);
+    tagMediaSessionFromUrl(url);
     return audio;
   }
 
@@ -2315,6 +2383,14 @@
     const v = sardSession.verses[sardSession.idx];
     const btn = document.getElementById("sardPlayBtn");
     if (btn) clearPlayError(btn);
+    // Warm the NEXT verse's cache while this one is still playing, not
+    // after it ends -- a continuous recitation feature is exactly where a
+    // mid-playback network hiccup is most disruptive (it breaks the flow
+    // Sard exists to test), so having the next verse already cached by the
+    // time it's needed makes that moment far less likely to ever hit a
+    // live network request at all, retry logic or not.
+    const next = sardSession.verses[sardSession.idx + 1];
+    if (next) warmAudioCache(audioUrlFor(next.surah, next.ayah));
     playAudio(audioUrlFor(v.surah, v.ayah), 1, () => {
       if (!sardSession || !sardSession.playing) return;
       advanceSard(true);
@@ -2340,6 +2416,19 @@
     }
     renderSardScreen();
     if (fromPlayback && sardSession.playing) {
+      const btn = document.getElementById("sardPlayBtn");
+      if (btn) { btn.textContent = "⏸"; btn.classList.add("playing"); }
+      playCurrentSardVerse();
+    }
+  }
+  // Mirror of advanceSard(), for the lock-screen/Bluetooth "previous
+  // track" control -- restarts the current verse if already at the start
+  // of the surah, same as a real previous-track button on a short track.
+  function retreatSard() {
+    if (!sardSession) return;
+    if (sardSession.idx > 0) sardSession.idx--;
+    renderSardScreen();
+    if (sardSession.playing) {
       const btn = document.getElementById("sardPlayBtn");
       if (btn) { btn.textContent = "⏸"; btn.classList.add("playing"); }
       playCurrentSardVerse();
@@ -3350,6 +3439,7 @@
     document.getElementById("brandBtn").addEventListener("click", () => switchScreen("home"));
     document.getElementById("settingsBtn").addEventListener("click", openSettingsModal);
     renderReciterSelect();
+    wireMediaSessionActions();
 
     if (window.CloudSync && window.CloudSync.user) {
       try {
