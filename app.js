@@ -157,11 +157,21 @@
   function saveMuraja() { save(MURAJA_KEY, muraja); pushToCloud(); }
 
   // ---------- date helpers ----------
-  function todayISO() { return new Date().toISOString().slice(0, 10); }
+  // Deliberately local calendar date, not UTC: toISOString() reports the
+  // UTC date, which silently drifts a day off the user's own "today" for
+  // roughly a third of the clock (the hours near their local midnight,
+  // wider the further they sit from UTC+0) -- exactly the hours a lot of
+  // real study happens (late at night, first thing in the morning). Every
+  // dueDate/addedDate/streak comparison in the app is a same-day check, so
+  // that drift silently misfires review scheduling and the daily streak.
+  function localISO(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function todayISO() { return localISO(new Date()); }
   function addDaysISO(days) {
     const d = new Date();
     d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
+    return localISO(d);
   }
 
   // ---------- arabic text helpers ----------
@@ -651,7 +661,7 @@
     const today = todayISO();
     if (stats.lastStudyDate === today) return;
     const yest = new Date(); yest.setDate(yest.getDate() - 1);
-    const yestISO = yest.toISOString().slice(0, 10);
+    const yestISO = localISO(yest);
     stats.streak = stats.lastStudyDate === yestISO ? stats.streak + 1 : 1;
     stats.lastStudyDate = today;
     saveStats();
