@@ -358,6 +358,7 @@
   // hovered (desktop) or tapped (mobile) -- one mechanism for both, rather
   // than a CSS-only :hover tooltip that wouldn't work on touch at all.
   let wordTooltipEl = null;
+  let wordTooltipForEl = null; // which .word-tap the tooltip currently belongs to, for tap-to-toggle
   function ensureWordTooltipEl() {
     if (wordTooltipEl) return wordTooltipEl;
     wordTooltipEl = document.createElement("div");
@@ -381,6 +382,7 @@
   }
   function hideWordTooltip() {
     if (wordTooltipEl) wordTooltipEl.classList.remove("visible");
+    wordTooltipForEl = null;
   }
   function wireWordTooltips(container) {
     if (!container) return;
@@ -389,9 +391,9 @@
       el.addEventListener("mouseleave", hideWordTooltip);
       el.addEventListener("click", (e) => {
         e.stopPropagation();
-        const isSame = wordTooltipEl && wordTooltipEl.classList.contains("visible") && wordTooltipEl.dataset.forEl === el;
+        const isSame = wordTooltipForEl === el && wordTooltipEl && wordTooltipEl.classList.contains("visible");
         hideWordTooltip();
-        if (!isSame) { showWordTooltip(el); if (wordTooltipEl) wordTooltipEl.dataset.forEl = el; }
+        if (!isSame) { showWordTooltip(el); wordTooltipForEl = el; }
       });
     });
   }
