@@ -1229,25 +1229,66 @@
     return v && v !== "pending" ? v : null;
   }
 
-  function playAudio(url, rate, onEnd) {
+  // onError (optional) fires only once retry has genuinely been exhausted,
+  // so a caller that wants to show a real "couldn't play" state can (see
+  // the story-mode play buttons below) -- callers that don't pass one just
+  // get onEnd either way, same as before.
+  function playAudio(url, rate, onEnd, onError) {
     cancelAudio();
     const offlineBlob = !navigator.onLine ? cachedBlobFor(url) : null;
     const audio = new Audio(offlineBlob || url);
     audio.playbackRate = rate || 1;
     currentAudio = audio;
     let settled = false;
+    let retried = false;
+    // A failed load fires BOTH the play() promise rejection AND the
+    // element's own 'error' event -- without this guard, handleError runs
+    // twice for what is really just one failed attempt, consuming the
+    // single retry before the real retry ever gets to execute.
+    let handledThisAttempt = false;
     const finish = () => { if (settled) return; settled = true; if (onEnd) onEnd(); };
+    // Once an <audio> element's src has already failed, calling .play()
+    // again on it does NOT re-issue a network request at all -- it just
+    // immediately re-rejects based on the element's already-errored state.
+    // .load() is what actually resets it and triggers a fresh fetch;
+    // without this the "retry" was never really retrying anything (caught
+    // via a direct test: the mocked network layer only ever saw the one
+    // original request, never a second one, even though the retry path
+    // was genuinely executing).
+    function retryPlay() {
+      handledThisAttempt = false;
+      audio.load();
+      audio.play().catch(handleError);
+    }
+    // Reported real-world symptom: plays "sometimes, not others" while
+    // fully online, in both the installed app and a plain Safari tab --
+    // not a gesture/autoplay-policy issue (Safari tabs aren't strict about
+    // that), just an occasional transient failure (weak signal, a dropped
+    // request, a slow DNS lookup) that used to fail completely silently --
+    // the button's "playing" state just quietly reverted with no
+    // indication anything went wrong and no way to retry short of
+    // guessing to tap again. One automatic retry clears the large
+    // majority of those on its own; if that ALSO fails, onError lets the
+    // caller show something the user can actually act on.
+    function handleError() {
+      if (currentAudio !== audio || settled || handledThisAttempt) return;
+      handledThisAttempt = true;
+      if (!retried) {
+        retried = true;
+        const cached = !offlineBlob && cachedBlobFor(url);
+        if (cached) { audio.src = cached; retryPlay(); }
+        else setTimeout(() => { if (currentAudio === audio && !settled) retryPlay(); }, 500);
+        return;
+      }
+      settled = true;
+      if (onError) onError(); else if (onEnd) onEnd();
+    }
     audio.addEventListener("ended", () => {
       finish();
       if (!offlineBlob) warmAudioCache(url);
-    }, { once: true });
-    audio.addEventListener("error", () => {
-      if (currentAudio !== audio || settled) return;
-      const cached = !offlineBlob && cachedBlobFor(url);
-      if (cached) { audio.src = cached; audio.play().catch(finish); }
-      else finish();
-    }, { once: true });
-    audio.play().catch(finish);
+    });
+    audio.addEventListener("error", handleError);
+    audio.play().catch(handleError);
     return audio;
   }
 
@@ -1259,7 +1300,7 @@
   // back to plain playback otherwise, same graceful-degradation spirit
   // as every other optional-data feature in this app. Same offline
   // caching approach as playAudio() above -- see the note there.
-  async function playAudioWithHighlight(surah, ayah, containerEl, onEnd) {
+  async function playAudioWithHighlight(surah, ayah, containerEl, onEnd, onError) {
     const segByAyah = await ensureSegmentsLoaded(surah).catch(() => null);
     const segments = segByAyah && segByAyah[ayah];
     cancelAudio();
@@ -1269,6 +1310,15 @@
     currentAudio = audio;
     let rafId = null;
     let settled = false;
+    let retried = false;
+    let handledThisAttempt = false; // see the matching note in playAudio() -- a failed load fires both the play() rejection and the 'error' event for the same attempt
+    // .load() is required to actually re-trigger a fresh network fetch on
+    // retry -- see the matching note in playAudio().
+    function retryPlay() {
+      handledThisAttempt = false;
+      audio.load();
+      audio.play().catch(handleError);
+    }
     function clearHighlight() {
       if (containerEl) containerEl.querySelectorAll(".word-playing").forEach(el => el.classList.remove("word-playing"));
     }
@@ -1287,18 +1337,49 @@
     }
     audio.addEventListener("play", () => { if (segments) rafId = requestAnimationFrame(tick); });
     const settle = () => { if (settled) return; settled = true; if (rafId) cancelAnimationFrame(rafId); clearHighlight(); if (onEnd) onEnd(); };
+    // Same one-automatic-retry-then-report approach as playAudio() -- see
+    // the note there.
+    function handleError() {
+      if (currentAudio !== audio || settled || handledThisAttempt) return;
+      handledThisAttempt = true;
+      if (!retried) {
+        retried = true;
+        const cached = !offlineBlob && cachedBlobFor(url);
+        if (cached) { audio.src = cached; retryPlay(); }
+        else setTimeout(() => { if (currentAudio === audio && !settled) retryPlay(); }, 500);
+        return;
+      }
+      settled = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      clearHighlight();
+      if (onError) onError(); else if (onEnd) onEnd();
+    }
     audio.addEventListener("ended", () => {
       settle();
       if (!offlineBlob) warmAudioCache(url);
-    }, { once: true });
-    audio.addEventListener("error", () => {
-      if (currentAudio !== audio || settled) return;
-      const cached = !offlineBlob && cachedBlobFor(url);
-      if (cached) { audio.src = cached; audio.play().catch(settle); }
-      else settle();
-    }, { once: true });
-    audio.play().catch(settle);
+    });
+    audio.addEventListener("error", handleError);
+    audio.play().catch(handleError);
     return audio;
+  }
+
+  // Visible feedback for the story-mode play buttons specifically, once
+  // playAudio()/playAudioWithHighlight() have genuinely exhausted their
+  // retry and given up -- turns a silent, easy-to-miss failure into
+  // something the user can see and immediately act on with another tap
+  // (clearPlayError runs at the start of every new attempt, so it never
+  // lingers past a subsequent success).
+  function showPlayError(btn) {
+    if (!btn) return;
+    btn.classList.add("play-error");
+    btn.textContent = "⟳";
+    btn.setAttribute("aria-label", "Couldn't play — tap to retry");
+  }
+  function clearPlayError(btn) {
+    if (!btn || !btn.classList.contains("play-error")) return;
+    btn.classList.remove("play-error");
+    btn.textContent = "▶";
+    btn.setAttribute("aria-label", btn.dataset.playLabel || "Play recitation");
   }
 
   function wordDataFor(card) {
@@ -1590,14 +1671,16 @@
       if (settled) return;
       const container = document.querySelector(".story-arabic-box .card-arabic");
       const indicator = document.getElementById("loopIndicator");
+      clearPlayError(playBtn);
       playBtn.classList.add("playing");
       if (indicator) indicator.classList.add("playing");
       const onEnd = () => {
         playBtn.classList.remove("playing");
         if (indicator) indicator.classList.remove("playing");
       };
-      if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd);
-      else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd);
+      const onError = () => { onEnd(); showPlayError(playBtn); };
+      if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd, onError);
+      else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, onError);
     });
 
     wireHorizontalSwipe(zone, {
@@ -1665,8 +1748,10 @@
     wireCantListenBtn(card, () => { settled = true; });
     const playBtn = document.getElementById("storyPlayBtn");
     playBtn.addEventListener("click", () => {
+      clearPlayError(playBtn);
       playBtn.classList.add("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => playBtn.classList.remove("playing"));
+      const onEnd = () => playBtn.classList.remove("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(playBtn); });
     });
     document.getElementById("fadeArabic").addEventListener("click", (e) => {
       e.currentTarget.classList.remove("tap-to-check");
@@ -2571,7 +2656,12 @@
     wireCantListenBtnVocab(card, word, () => { settled = true; });
     const playWord = () => { if (word.au) playAudio(`https://audio.qurancdn.com/${word.au}`, 1); };
     const playBtn = document.getElementById("storyPlayBtn");
-    if (playBtn) playBtn.addEventListener("click", () => { playBtn.classList.add("playing"); playAudio(`https://audio.qurancdn.com/${word.au}`, 1, () => playBtn.classList.remove("playing")); });
+    if (playBtn) playBtn.addEventListener("click", () => {
+      clearPlayError(playBtn);
+      playBtn.classList.add("playing");
+      const onEnd = () => playBtn.classList.remove("playing");
+      playAudio(`https://audio.qurancdn.com/${word.au}`, 1, onEnd, () => { onEnd(); showPlayError(playBtn); });
+    });
     document.getElementById("vocabFlashWord").addEventListener("click", (e) => {
       e.currentTarget.classList.remove("tap-to-check");
       document.getElementById("vocabFlashMeaning").innerHTML = `
