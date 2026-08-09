@@ -12,7 +12,7 @@
 // version on every deploy -- that's what forces every open tab to fetch a
 // fresh shell and drop the old cache on its next activate, the same
 // invalidation switch the rest of the app already uses.
-const CACHE_VERSION = "20260810";
+const CACHE_VERSION = "20260811";
 const SHELL_CACHE = `wird-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `wird-runtime-v${CACHE_VERSION}`;
 

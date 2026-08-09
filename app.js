@@ -1240,11 +1240,17 @@
     audio.playbackRate = rate || 1;
     currentAudio = audio;
     let settled = false;
-    let retried = false;
+    let retryCount = 0;
+    let usedCacheFallback = false;
+    // Two retries (three attempts total) with increasing backoff -- a
+    // single retry only survives one transient blip; real-world CDN
+    // hiccups can string together more than one failure in a row.
+    const RETRY_DELAYS = [500, 1500];
+    const MAX_RETRIES = RETRY_DELAYS.length;
     // A failed load fires BOTH the play() promise rejection AND the
     // element's own 'error' event -- without this guard, handleError runs
-    // twice for what is really just one failed attempt, consuming the
-    // single retry before the real retry ever gets to execute.
+    // twice for what is really just one failed attempt, consuming a retry
+    // before the real retry ever gets to execute.
     let handledThisAttempt = false;
     const finish = () => { if (settled) return; settled = true; if (onEnd) onEnd(); };
     // Once an <audio> element's src has already failed, calling .play()
@@ -1267,17 +1273,18 @@
     // request, a slow DNS lookup) that used to fail completely silently --
     // the button's "playing" state just quietly reverted with no
     // indication anything went wrong and no way to retry short of
-    // guessing to tap again. One automatic retry clears the large
-    // majority of those on its own; if that ALSO fails, onError lets the
+    // guessing to tap again. Automatic retries clear the large majority
+    // of those on their own; if they ALSO all fail, onError lets the
     // caller show something the user can actually act on.
     function handleError() {
       if (currentAudio !== audio || settled || handledThisAttempt) return;
       handledThisAttempt = true;
-      if (!retried) {
-        retried = true;
-        const cached = !offlineBlob && cachedBlobFor(url);
-        if (cached) { audio.src = cached; retryPlay(); }
-        else setTimeout(() => { if (currentAudio === audio && !settled) retryPlay(); }, 500);
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[retryCount];
+        retryCount++;
+        const cached = !offlineBlob && !usedCacheFallback && cachedBlobFor(url);
+        if (cached) { usedCacheFallback = true; audio.src = cached; retryPlay(); }
+        else setTimeout(() => { if (currentAudio === audio && !settled) retryPlay(); }, delay);
         return;
       }
       settled = true;
@@ -1310,7 +1317,10 @@
     currentAudio = audio;
     let rafId = null;
     let settled = false;
-    let retried = false;
+    let retryCount = 0;
+    let usedCacheFallback = false;
+    const RETRY_DELAYS = [500, 1500]; // see the matching note in playAudio()
+    const MAX_RETRIES = RETRY_DELAYS.length;
     let handledThisAttempt = false; // see the matching note in playAudio() -- a failed load fires both the play() rejection and the 'error' event for the same attempt
     // .load() is required to actually re-trigger a fresh network fetch on
     // retry -- see the matching note in playAudio().
@@ -1342,11 +1352,12 @@
     function handleError() {
       if (currentAudio !== audio || settled || handledThisAttempt) return;
       handledThisAttempt = true;
-      if (!retried) {
-        retried = true;
-        const cached = !offlineBlob && cachedBlobFor(url);
-        if (cached) { audio.src = cached; retryPlay(); }
-        else setTimeout(() => { if (currentAudio === audio && !settled) retryPlay(); }, 500);
+      if (retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAYS[retryCount];
+        retryCount++;
+        const cached = !offlineBlob && !usedCacheFallback && cachedBlobFor(url);
+        if (cached) { usedCacheFallback = true; audio.src = cached; retryPlay(); }
+        else setTimeout(() => { if (currentAudio === audio && !settled) retryPlay(); }, delay);
         return;
       }
       settled = true;
@@ -1817,8 +1828,11 @@
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
-      e.currentTarget.classList.add("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+      const btn = e.currentTarget;
+      clearPlayError(btn);
+      btn.classList.add("playing");
+      const onEnd = () => btn.classList.remove("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(btn); });
     });
     let answered = false;
     document.querySelectorAll(".chain-opt").forEach(btn => {
@@ -1868,8 +1882,11 @@
     `;
     wireWordTooltips(document.getElementById("mutashabihPair"));
     document.getElementById("playBtn").addEventListener("click", (e) => {
-      e.currentTarget.classList.add("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+      const btn = e.currentTarget;
+      clearPlayError(btn);
+      btn.classList.add("playing");
+      const onEnd = () => btn.classList.remove("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(btn); });
     });
     let answered = false;
     document.querySelectorAll(".mutashabih-card").forEach(el => {
@@ -1917,8 +1934,11 @@
     `;
     wireWordTooltips(host.querySelector(".card-arabic-box"));
     document.getElementById("playBtn").addEventListener("click", (e) => {
-      e.currentTarget.classList.add("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+      const btn = e.currentTarget;
+      clearPlayError(btn);
+      btn.classList.add("playing");
+      const onEnd = () => btn.classList.remove("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(btn); });
     });
     let answered = false;
     document.querySelectorAll(".page-cell").forEach(btn => {
@@ -1960,8 +1980,11 @@
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
-      e.currentTarget.classList.add("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+      const btn = e.currentTarget;
+      clearPlayError(btn);
+      btn.classList.add("playing");
+      const onEnd = () => btn.classList.remove("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(btn); });
     });
     let answered = false;
     document.querySelectorAll("#blindOptions .option").forEach(btn => {
@@ -2020,8 +2043,11 @@
       </div>
     `;
     document.getElementById("playBtn").addEventListener("click", (e) => {
-      e.currentTarget.classList.add("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+      const btn = e.currentTarget;
+      clearPlayError(btn);
+      btn.classList.add("playing");
+      const onEnd = () => btn.classList.remove("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(btn); });
     });
 
     const targetEl = document.getElementById("assembleTarget");
@@ -2158,8 +2184,11 @@
     `;
     wireWordTooltips(host.querySelector(".card-arabic-box"));
     document.getElementById("playBtn").addEventListener("click", (e) => {
-      e.currentTarget.classList.add("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => e.currentTarget.classList.remove("playing"));
+      const btn = e.currentTarget;
+      clearPlayError(btn);
+      btn.classList.add("playing");
+      const onEnd = () => btn.classList.remove("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(btn); });
     });
     let answered = false;
     document.querySelectorAll("#clozeOptions .option").forEach(btn => {
@@ -2284,9 +2313,21 @@
     if (!sardSession || !sardSession.playing) return;
     if (sardSession.idx >= sardSession.verses.length) { sardSession.playing = false; return; }
     const v = sardSession.verses[sardSession.idx];
+    const btn = document.getElementById("sardPlayBtn");
+    if (btn) clearPlayError(btn);
     playAudio(audioUrlFor(v.surah, v.ayah), 1, () => {
       if (!sardSession || !sardSession.playing) return;
       advanceSard(true);
+    }, () => {
+      // A genuine failure (the automatic retry inside playAudio() already
+      // exhausted) used to fall through to the same onEnd callback as a
+      // real completion, which silently advanced to the next verse as if
+      // this one had actually played -- in a continuous whole-surah
+      // recitation feature, that means verses could get skipped with zero
+      // indication. Stop autoplay and show the error instead.
+      if (!sardSession) return;
+      sardSession.playing = false;
+      if (btn) { btn.textContent = "▶"; btn.classList.remove("playing"); showPlayError(btn); }
     });
   }
   function advanceSard(fromPlayback) {
@@ -2621,10 +2662,13 @@
     const btn = document.getElementById("vocabPlayBtn");
     if (!btn) return;
     btn.addEventListener("click", (e) => {
-      e.currentTarget.classList.add("playing");
+      const b = e.currentTarget;
+      clearPlayError(b);
+      b.classList.add("playing");
       const url = word.au ? `https://audio.qurancdn.com/${word.au}` : null;
-      if (url) playAudio(url, 1, () => e.currentTarget.classList.remove("playing"));
-      else e.currentTarget.classList.remove("playing");
+      const onEnd = () => b.classList.remove("playing");
+      if (url) playAudio(url, 1, onEnd, () => { onEnd(); showPlayError(b); });
+      else onEnd();
     });
   }
 
@@ -3104,29 +3148,54 @@
       }).catch(function () { decodeCtx.close().catch(function () {}); });
     }).catch(function () {});
   }
+  // Voice Mirror's two tracks (the user's own recording, and the reciter's)
+  // used to bypass playAudio() entirely with no retry and no visible error
+  // state -- a failed play() just silently reset the button to look exactly
+  // like "never tapped," indistinguishable from success. Rebuilt on the
+  // same one-retry-then-visible-error pattern as playAudio(), driven off
+  // the audio element's own 'playing'/'pause' events (not a hand-tracked
+  // boolean) so the button state can't desync from reality across a retry.
   function wirePlayToggle(btn, audioEl, onPlay, eqEl) {
     if (!btn) return;
-    let playing = false;
-    audioEl.addEventListener("ended", reset);
-    audioEl.addEventListener("pause", reset);
+    let retried = false;
+    let handledThisAttempt = false;
+    audioEl.addEventListener("playing", () => {
+      btn.textContent = "❚❚";
+      if (eqEl) eqEl.classList.add("playing");
+    });
+    audioEl.addEventListener("pause", () => {
+      btn.textContent = "▶";
+      if (eqEl) eqEl.classList.remove("playing");
+    });
+    audioEl.addEventListener("error", handleError);
     btn.addEventListener("click", function () {
-      if (playing) { audioEl.pause(); return; }
+      if (!audioEl.paused) { audioEl.pause(); return; }
+      clearPlayError(btn);
       // only one of the two tracks plays at a time
       if (voiceMirrorState) {
         if (voiceMirrorState.mineAudio && voiceMirrorState.mineAudio !== audioEl) voiceMirrorState.mineAudio.pause();
         if (voiceMirrorState.reciterAudio && voiceMirrorState.reciterAudio !== audioEl) voiceMirrorState.reciterAudio.pause();
       }
+      retried = false;
+      handledThisAttempt = false;
       audioEl.currentTime = 0;
-      audioEl.play().catch(reset);
-      playing = true;
-      btn.textContent = "❚❚";
-      if (eqEl) eqEl.classList.add("playing");
+      audioEl.play().catch(handleError);
       if (onPlay) onPlay();
     });
-    function reset() {
-      playing = false;
-      btn.textContent = "▶";
-      if (eqEl) eqEl.classList.remove("playing");
+    function handleError() {
+      if (handledThisAttempt) return;
+      handledThisAttempt = true;
+      if (!retried) {
+        retried = true;
+        setTimeout(() => {
+          handledThisAttempt = false;
+          audioEl.load();
+          audioEl.currentTime = 0;
+          audioEl.play().catch(handleError);
+        }, 500);
+        return;
+      }
+      showPlayError(btn);
     }
   }
   function drawWaveformOnCanvas(canvas, audioBuffer) {

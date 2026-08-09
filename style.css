@@ -512,6 +512,10 @@ body {
   animation: playErrorShake 0.4s ease;
 }
 @keyframes playErrorShake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+.vm-play-btn.play-error {
+  background: linear-gradient(135deg, var(--bad), color-mix(in srgb, var(--bad) 65%, black));
+  animation: playErrorShake 0.4s ease;
+}
 .story-play-btn { margin: 4px auto 14px; box-shadow: 0 4px 14px rgba(0,0,0,0.28); }
 .speed-btn { border: 1.5px solid var(--border); background: var(--surface); border-radius: 10px; padding: 8px 12px; font-size: 0.8rem; cursor: pointer; color: var(--text); }
 .speed-btn.active { border-color: var(--gold); color: var(--gold); }
