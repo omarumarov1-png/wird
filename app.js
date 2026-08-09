@@ -1188,13 +1188,58 @@
   function clearReviewKeydownCleanup() {
     if (activeReviewKeydownCleanup) { activeReviewKeydownCleanup(); activeReviewKeydownCleanup = null; }
   }
+  // <audio src="..."> issues its own real HTTP request -- often a Range
+  // request, to probe duration/seek -- and Safari/WebKit is known to NOT
+  // reliably route those through a Service Worker's fetch handler, even
+  // when the file is already cached there. That's the one real gap in
+  // this app's offline story: everything else goes through page-initiated
+  // fetch(), which a SW always intercepts correctly.
+  //
+  // The fix here is deliberately NOT "always resolve a blob before
+  // playing" -- an earlier version of this did that and broke playback
+  // outright, online included, because these CDNs have never sent
+  // Access-Control-Allow-Origin (only the older no-cors media-loading
+  // exception that <audio src> itself relies on), so gating every single
+  // play() on a fetch() first was gating it on something that could fail
+  // in ways this sandbox can't fully verify against the real CDN.
+  //
+  // Instead: <audio src={url}> stays the primary path, byte-for-byte the
+  // same as it's always worked. Alongside that (never blocking it),
+  // warmAudioCache() opportunistically fetches the same URL in no-cors
+  // mode purely to warm the Service Worker's cache + keep a blob: URL in
+  // memory -- and ONLY if the <audio> element itself actually reports a
+  // real load error (the exact symptom of the Safari range-request gap,
+  // most likely while offline) does playback fall back to that cached
+  // blob. Online behavior is completely unchanged either way.
+  const audioBlobUrlCache = new Map();
+  function warmAudioCache(url) {
+    if (audioBlobUrlCache.has(url)) return;
+    audioBlobUrlCache.set(url, "pending");
+    fetch(url, { mode: "no-cors" }).then((res) => {
+      if (!res.ok && res.type !== "opaque") { audioBlobUrlCache.delete(url); return null; }
+      return res.blob();
+    }).then((blob) => {
+      if (blob && blob.size) audioBlobUrlCache.set(url, URL.createObjectURL(blob));
+      else audioBlobUrlCache.delete(url);
+    }).catch(() => audioBlobUrlCache.delete(url));
+  }
+
   function playAudio(url, rate, onEnd) {
     cancelAudio();
     const audio = new Audio(url);
     audio.playbackRate = rate || 1;
     currentAudio = audio;
-    audio.addEventListener("ended", () => { if (onEnd) onEnd(); }, { once: true });
-    audio.play().catch(() => { if (onEnd) onEnd(); });
+    let settled = false;
+    const finish = () => { if (settled) return; settled = true; if (onEnd) onEnd(); };
+    audio.addEventListener("ended", finish, { once: true });
+    audio.addEventListener("error", () => {
+      if (currentAudio !== audio || settled) return;
+      const cached = audioBlobUrlCache.get(url);
+      if (cached && cached !== "pending") { audio.src = cached; audio.play().catch(finish); }
+      else finish();
+    }, { once: true });
+    audio.play().catch(finish);
+    warmAudioCache(url);
     return audio;
   }
 
@@ -1209,9 +1254,11 @@
     const segByAyah = await ensureSegmentsLoaded(surah).catch(() => null);
     const segments = segByAyah && segByAyah[ayah];
     cancelAudio();
-    const audio = new Audio(audioUrlFor(surah, ayah));
+    const url = audioUrlFor(surah, ayah);
+    const audio = new Audio(url);
     currentAudio = audio;
     let rafId = null;
+    let settled = false;
     function clearHighlight() {
       if (containerEl) containerEl.querySelectorAll(".word-playing").forEach(el => el.classList.remove("word-playing"));
     }
@@ -1229,10 +1276,16 @@
       rafId = requestAnimationFrame(tick);
     }
     audio.addEventListener("play", () => { if (segments) rafId = requestAnimationFrame(tick); });
-    const settle = () => { if (rafId) cancelAnimationFrame(rafId); clearHighlight(); if (onEnd) onEnd(); };
+    const settle = () => { if (settled) return; settled = true; if (rafId) cancelAnimationFrame(rafId); clearHighlight(); if (onEnd) onEnd(); };
     audio.addEventListener("ended", settle, { once: true });
-    audio.addEventListener("error", settle, { once: true });
+    audio.addEventListener("error", () => {
+      if (currentAudio !== audio || settled) return;
+      const cached = audioBlobUrlCache.get(url);
+      if (cached && cached !== "pending") { audio.src = cached; audio.play().catch(settle); }
+      else settle();
+    }, { once: true });
     audio.play().catch(settle);
+    warmAudioCache(url);
     return audio;
   }
 
@@ -2908,8 +2961,14 @@
 
     const mineAudio = new Audio(voiceMirrorState.recordedUrl);
     voiceMirrorState.mineAudio = mineAudio;
-    const reciterAudio = new Audio(audioUrlFor(voiceMirrorState.card.surah, voiceMirrorState.card.ayah));
+    const reciterUrl = audioUrlFor(voiceMirrorState.card.surah, voiceMirrorState.card.ayah);
+    const reciterAudio = new Audio(reciterUrl);
     voiceMirrorState.reciterAudio = reciterAudio;
+    reciterAudio.addEventListener("error", () => {
+      const cached = audioBlobUrlCache.get(reciterUrl);
+      if (cached && cached !== "pending") reciterAudio.src = cached;
+    }, { once: true });
+    warmAudioCache(reciterUrl);
 
     const playMineBtn = document.getElementById("vmPlayMine");
     const playReciterBtn = document.getElementById("vmPlayReciter");
