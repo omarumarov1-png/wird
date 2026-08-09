@@ -1190,58 +1190,25 @@
   function clearReviewKeydownCleanup() {
     if (activeReviewKeydownCleanup) { activeReviewKeydownCleanup(); activeReviewKeydownCleanup = null; }
   }
-  // <audio src="..."> issues its own real HTTP request -- often a Range
-  // request, to probe duration/seek -- and Safari/WebKit is known to NOT
-  // reliably route those through a Service Worker's fetch handler, even
-  // when the file is already cached there. That's the one real gap in
-  // this app's offline story: everything else goes through page-initiated
-  // fetch(), which a SW always intercepts correctly.
-  //
-  // The fix here is deliberately NOT "always resolve a blob before
-  // playing" -- an earlier version of this did that and broke playback
-  // outright, online included, because these CDNs have never sent
-  // Access-Control-Allow-Origin (only the older no-cors media-loading
-  // exception that <audio src> itself relies on), so gating every single
-  // play() on a fetch() first was gating it on something that could fail
-  // in ways this sandbox can't fully verify against the real CDN.
-  //
-  // Instead: <audio src={url}> stays the primary path, byte-for-byte the
-  // same as it's always worked. Alongside that (never blocking it),
-  // warmAudioCache() opportunistically fetches the same URL in no-cors
-  // mode purely to warm the Service Worker's cache + keep a blob: URL in
-  // memory -- and ONLY if the <audio> element itself actually reports a
-  // real load error (the exact symptom of the Safari range-request gap,
-  // most likely while offline) does playback fall back to that cached
-  // blob. Online behavior is completely unchanged either way.
-  const audioBlobUrlCache = new Map();
-  function warmAudioCache(url) {
-    if (audioBlobUrlCache.has(url)) return;
-    audioBlobUrlCache.set(url, "pending");
-    fetch(url, { mode: "no-cors" }).then((res) => {
-      if (!res.ok && res.type !== "opaque") { audioBlobUrlCache.delete(url); return null; }
-      return res.blob();
-    }).then((blob) => {
-      if (blob && blob.size) audioBlobUrlCache.set(url, URL.createObjectURL(blob));
-      else audioBlobUrlCache.delete(url);
-    }).catch(() => audioBlobUrlCache.delete(url));
-  }
-
+  // A previous version of this routed every play() through a fetch()-then-
+  // blob step (to help offline caching) and separately, on top of that, a
+  // background "warm the cache" fetch fired on every single play alongside
+  // the real <audio> stream -- doubling network usage for every play and a
+  // plausible cause of the exact "audio often just doesn't work" reports
+  // this was supposed to fix, never mind offline. Both are gone. This is
+  // deliberately back to the simplest thing that reliably works: a plain
+  // <audio src>, played directly from a real user gesture (every call site
+  // below is wired to an explicit tap, never autoplay -- see the "no
+  // autoplay" notes on the story-mode render functions). True offline
+  // audio playback remains a known, unsolved limitation rather than
+  // something papered over with unverified complexity.
   function playAudio(url, rate, onEnd) {
     cancelAudio();
     const audio = new Audio(url);
     audio.playbackRate = rate || 1;
     currentAudio = audio;
-    let settled = false;
-    const finish = () => { if (settled) return; settled = true; if (onEnd) onEnd(); };
-    audio.addEventListener("ended", finish, { once: true });
-    audio.addEventListener("error", () => {
-      if (currentAudio !== audio || settled) return;
-      const cached = audioBlobUrlCache.get(url);
-      if (cached && cached !== "pending") { audio.src = cached; audio.play().catch(finish); }
-      else finish();
-    }, { once: true });
-    audio.play().catch(finish);
-    warmAudioCache(url);
+    audio.addEventListener("ended", () => { if (onEnd) onEnd(); }, { once: true });
+    audio.play().catch(() => { if (onEnd) onEnd(); });
     return audio;
   }
 
@@ -1256,11 +1223,9 @@
     const segByAyah = await ensureSegmentsLoaded(surah).catch(() => null);
     const segments = segByAyah && segByAyah[ayah];
     cancelAudio();
-    const url = audioUrlFor(surah, ayah);
-    const audio = new Audio(url);
+    const audio = new Audio(audioUrlFor(surah, ayah));
     currentAudio = audio;
     let rafId = null;
-    let settled = false;
     function clearHighlight() {
       if (containerEl) containerEl.querySelectorAll(".word-playing").forEach(el => el.classList.remove("word-playing"));
     }
@@ -1278,16 +1243,10 @@
       rafId = requestAnimationFrame(tick);
     }
     audio.addEventListener("play", () => { if (segments) rafId = requestAnimationFrame(tick); });
-    const settle = () => { if (settled) return; settled = true; if (rafId) cancelAnimationFrame(rafId); clearHighlight(); if (onEnd) onEnd(); };
+    const settle = () => { if (rafId) cancelAnimationFrame(rafId); clearHighlight(); if (onEnd) onEnd(); };
     audio.addEventListener("ended", settle, { once: true });
-    audio.addEventListener("error", () => {
-      if (currentAudio !== audio || settled) return;
-      const cached = audioBlobUrlCache.get(url);
-      if (cached && cached !== "pending") { audio.src = cached; audio.play().catch(settle); }
-      else settle();
-    }, { once: true });
+    audio.addEventListener("error", settle, { once: true });
     audio.play().catch(settle);
-    warmAudioCache(url);
     return audio;
   }
 
@@ -1541,13 +1500,16 @@
   // right ("it's fine") reveals + rates Good and moves on; swipe left
   // ("I don't have this") reveals + rates Again and moves on. Tapping to
   // peek early, the 4-way rating row, and keyboard shortcuts all still
-  // work exactly as before -- the loop/swipe is a faster path layered on
-  // top, not a replacement for them.
-  // No buttons here by design -- the script is on screen and playing the
-  // moment the card appears, and the only input is the swipe itself:
-  // right ("I've got this") or left ("I don't"). Arrow keys mirror it on
-  // desktop. Audio is cut the instant a swipe commits, and the next
-  // card's recitation starts the instant it renders.
+  // work exactly as before -- the swipe is a faster path layered on top,
+  // not a replacement for them.
+  // Playback is tap-only -- no autoplay, no loop. Browsers (iOS Safari
+  // especially, including the installed-PWA WKWebView this app runs in
+  // once added to the home screen) only reliably allow audio.play() when
+  // it's called synchronously from a real user gesture; a card that tries
+  // to start playing itself the instant it renders has no such gesture to
+  // point to, which is exactly the kind of silent, hard-to-diagnose
+  // failure this app kept running into. A direct tap on the play button
+  // always has one.
   function renderListenRecall(host, card) {
     let settled = false;
     host.innerHTML = `
@@ -1559,7 +1521,8 @@
           <div class="story-content">
             <div class="mode-kicker">Listen &amp; Recall</div>
             <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-            <div class="story-loop-indicator" id="loopIndicator"><span class="pulse-dot"></span>Swipe right when ready, left to repeat</div>
+            <button type="button" class="play-btn story-play-btn" id="storyPlayBtn" aria-label="Play recitation">▶</button>
+            <div class="story-loop-indicator" id="loopIndicator"><span class="pulse-dot"></span>Tap to listen, swipe when ready</div>
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
             <div class="card-translation">${escapeHtml(card.translation)}</div>
             ${cantListenBtnHtml()}
@@ -1571,20 +1534,20 @@
     wireWordTooltips(zone);
     wireCantListenBtn(card, () => { settled = true; });
 
-    function loopPlay() {
+    const playBtn = document.getElementById("storyPlayBtn");
+    playBtn.addEventListener("click", () => {
       if (settled) return;
       const container = document.querySelector(".story-arabic-box .card-arabic");
       const indicator = document.getElementById("loopIndicator");
+      playBtn.classList.add("playing");
       if (indicator) indicator.classList.add("playing");
       const onEnd = () => {
+        playBtn.classList.remove("playing");
         if (indicator) indicator.classList.remove("playing");
-        if (settled) return;
-        setTimeout(() => { if (!settled) loopPlay(); }, 650);
       };
       if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd);
       else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd);
-    }
-    loopPlay();
+    });
 
     wireHorizontalSwipe(zone, {
       onRight: () => commit("good"),
@@ -1637,6 +1600,7 @@
           <div class="story-content">
             <div class="mode-kicker">Fade Recall</div>
             <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
+            <button type="button" class="play-btn story-play-btn" id="storyPlayBtn" aria-label="Play recitation">▶</button>
             <div class="story-loop-indicator">Recite the missing words, tap to check</div>
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" id="fadeArabic">${faded}</div></div>
             <div class="card-translation" id="fadeTranslation"></div>
@@ -1648,7 +1612,11 @@
     const zone = document.getElementById("storySwipeZone");
     wireWordTooltips(zone);
     wireCantListenBtn(card, () => { settled = true; });
-    playAudio(audioUrlFor(card.surah, card.ayah), 1);
+    const playBtn = document.getElementById("storyPlayBtn");
+    playBtn.addEventListener("click", () => {
+      playBtn.classList.add("playing");
+      playAudio(audioUrlFor(card.surah, card.ayah), 1, () => playBtn.classList.remove("playing"));
+    });
     document.getElementById("fadeArabic").addEventListener("click", (e) => {
       e.currentTarget.classList.remove("tap-to-check");
       e.currentTarget.innerHTML = arabicHtmlFor(card);
@@ -2539,6 +2507,7 @@
           <div class="story-content">
             <div class="mode-kicker">Flashcard</div>
             <div class="ref-badge">Rank ${word.rk} · seen ${word.n}×</div>
+            ${word.au ? `<button type="button" class="play-btn story-play-btn" id="storyPlayBtn" aria-label="Play word">▶</button>` : ""}
             <div class="story-loop-indicator">Recall the meaning, tap to check</div>
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" dir="rtl" id="vocabFlashWord">${escapeHtml(word.ar)}</div></div>
             <div class="card-translation" id="vocabFlashMeaning"></div>
@@ -2550,7 +2519,8 @@
     const zone = document.getElementById("storySwipeZone");
     wireCantListenBtnVocab(card, word, () => { settled = true; });
     const playWord = () => { if (word.au) playAudio(`https://audio.qurancdn.com/${word.au}`, 1); };
-    playWord();
+    const playBtn = document.getElementById("storyPlayBtn");
+    if (playBtn) playBtn.addEventListener("click", () => { playBtn.classList.add("playing"); playAudio(`https://audio.qurancdn.com/${word.au}`, 1, () => playBtn.classList.remove("playing")); });
     document.getElementById("vocabFlashWord").addEventListener("click", (e) => {
       e.currentTarget.classList.remove("tap-to-check");
       document.getElementById("vocabFlashMeaning").innerHTML = `
@@ -2713,7 +2683,6 @@
       </div>
     `;
     wireVocabPlay(word);
-    document.getElementById("vocabPlayBtn").click();
     wireCantListenBtnVocab(card, word);
     let answered = false;
     document.querySelectorAll("#vocabAudioOptions .option").forEach(btn => {
@@ -2963,14 +2932,8 @@
 
     const mineAudio = new Audio(voiceMirrorState.recordedUrl);
     voiceMirrorState.mineAudio = mineAudio;
-    const reciterUrl = audioUrlFor(voiceMirrorState.card.surah, voiceMirrorState.card.ayah);
-    const reciterAudio = new Audio(reciterUrl);
+    const reciterAudio = new Audio(audioUrlFor(voiceMirrorState.card.surah, voiceMirrorState.card.ayah));
     voiceMirrorState.reciterAudio = reciterAudio;
-    reciterAudio.addEventListener("error", () => {
-      const cached = audioBlobUrlCache.get(reciterUrl);
-      if (cached && cached !== "pending") reciterAudio.src = cached;
-    }, { once: true });
-    warmAudioCache(reciterUrl);
 
     const playMineBtn = document.getElementById("vmPlayMine");
     const playReciterBtn = document.getElementById("vmPlayReciter");
