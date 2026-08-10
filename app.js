@@ -103,7 +103,7 @@
   let settings = { mode: DEFAULT_STUDY_MODE };
   function currentModeConfig() { return STUDY_MODES[settings.mode] || STUDY_MODES[DEFAULT_STUDY_MODE]; }
   let stats = { streak: 0, lastStudyDate: null, totalReviews: 0 };
-  let achievements = { completedSurahs: [] }; // surah numbers, each recorded once, the moment every ayah the user added is mature
+  let achievements = { completedSurahs: [], completedJuz: [] }; // numbers, each recorded once, the moment every ayah the user added for that surah/juz is mature
   let surahCache = {};      // "surahNum" -> {ar: [...], en: [...], audio: [...]}
   let wordsCache = {};      // "surah:ayah" -> [{ar, tr, en}, ...] (word-by-word, quran.com)
   let segmentsCache = {};   // "surahNum" -> { ayahNum: [[wordPos, startMsRelative, endMsRelative], ...] }
@@ -144,7 +144,7 @@
     segmentsCache = load(SEGMENTS_CACHE_KEY, {});
     muraja = load(MURAJA_KEY, {});
     vocabCards = load(VOCAB_CARDS_KEY, {});
-    achievements = Object.assign({ completedSurahs: [] }, load(ACHIEVEMENTS_KEY, {}));
+    achievements = Object.assign({ completedSurahs: [], completedJuz: [] }, load(ACHIEVEMENTS_KEY, {}));
   }
   function saveCards() { save(CARDS_KEY, cards); pushToCloud(); }
   function saveSettings() { save(SETTINGS_KEY, settings); pushToCloud(); }
@@ -488,6 +488,7 @@
           card.phase = "mature";
           card.interval = Math.round((card.interval || REVIEWING_GAPS[REVIEWING_GAPS.length - 1]) * card.ease);
           if (card.surah !== undefined) checkSurahMastery(card.surah);
+          if (card.juz !== undefined) checkJuzMastery(card.juz);
         } else {
           card.interval = REVIEWING_GAPS[card.reviewStep];
         }
@@ -543,7 +544,59 @@
     if (!surahCards.every(c => masteryStage(c) === "mature")) return;
     achievements.completedSurahs.push(surahNum);
     saveAchievements();
-    achievementQueue.push(meta);
+    achievementQueue.push({ type: "surah", number: surahNum, name: meta.name, englishName: meta.englishName, count: meta.numberOfAyahs });
+    setTimeout(processAchievementQueue, 850);
+  }
+  // Where each of the 30 juz begins ([surah, ayah]) -- sourced live from
+  // api.alquran.cloud's own /meta endpoint (juzs.references), the same API
+  // this app already trusts for surah/ayah text, not guessed from memory:
+  // getting a juz boundary wrong in a Qur'an app would be a real quality
+  // problem, the same standard already applied to the reciter folder names
+  // (see the comment above RECITERS).
+  const JUZ_START = [
+    [1, 1], [2, 142], [2, 253], [3, 93], [4, 24], [4, 148], [5, 82], [6, 111],
+    [7, 88], [8, 41], [9, 93], [11, 6], [12, 53], [15, 1], [17, 1], [18, 75],
+    [21, 1], [23, 1], [25, 21], [27, 56], [29, 46], [33, 31], [36, 28], [39, 32],
+    [41, 47], [46, 1], [51, 31], [58, 1], [67, 1], [78, 1],
+  ];
+  // Total ayahs belonging to juz N -- every ayah from its own start up to
+  // (but not including) the next juz's start, computed from surahList's
+  // real per-surah ayah counts rather than a second hardcoded table, so it
+  // can never drift out of sync with JUZ_START above.
+  function juzAyahCount(juzNum) {
+    const [startSurah, startAyah] = JUZ_START[juzNum - 1];
+    const next = JUZ_START[juzNum]; // undefined for juz 30 -- runs to the Quran's end
+    let count = 0;
+    let s = startSurah, a = startAyah;
+    while (true) {
+      if (next && s === next[0] && a >= next[1]) break;
+      const meta = surahList.find(m => m.number === s);
+      if (!meta) break; // surahList not loaded yet -- caller treats a 0/uncertain count as "not complete"
+      if (next && s === next[0]) {
+        count += next[1] - a;
+        break;
+      }
+      count += meta.numberOfAyahs - a + 1;
+      s++; a = 1;
+      if (s > 114) break;
+    }
+    return count;
+  }
+  // Same shape as checkSurahMastery(), but for a full juz spanning however
+  // many surahs it covers -- a card only counts toward a juz if BOTH its
+  // surah and ayah fall within that juz's real boundaries (card.juz, set
+  // from the API's own per-ayah juz field when the card was added, is
+  // trusted directly rather than recomputed here).
+  function checkJuzMastery(juzNum) {
+    if (achievements.completedJuz.includes(juzNum)) return;
+    const total = juzAyahCount(juzNum);
+    if (!total) return;
+    const juzCards = Object.values(cards).filter(c => c.juz === juzNum);
+    if (juzCards.length !== total) return;
+    if (!juzCards.every(c => masteryStage(c) === "mature")) return;
+    achievements.completedJuz.push(juzNum);
+    saveAchievements();
+    achievementQueue.push({ type: "juz", number: juzNum, count: total });
     setTimeout(processAchievementQueue, 850);
   }
   // Cards from several surahs are routinely interleaved in one day's
@@ -559,21 +612,24 @@
     if (achievementShowing || !achievementQueue.length) return;
     const meta = achievementQueue.shift();
     achievementShowing = true;
-    showSurahMasteryCelebration(meta, () => {
+    showMasteryCelebration(meta, () => {
       achievementShowing = false;
       if (achievementQueue.length) setTimeout(processAchievementQueue, 500);
     });
   }
-  function showSurahMasteryCelebration(meta, onClose) {
+  function showMasteryCelebration(meta, onClose) {
     const overlay = document.getElementById("achievementOverlay");
     if (!overlay) { if (onClose) onClose(); return; }
+    const isJuz = meta.type === "juz";
     overlay.innerHTML = `
       <div class="achieve-card">
         <div class="achieve-seal">﴾ ﴿</div>
-        <div class="achieve-kicker">Surah Complete</div>
-        <div class="achieve-name">${escapeHtml(meta.name)}</div>
-        <div class="achieve-sub">${escapeHtml(meta.englishName)} &middot; ${meta.numberOfAyahs} verses, fully matured</div>
-        <p class="achieve-note">Every verse has passed its full cure — seven encounters to learn, two more to confirm it held. This one is yours now.</p>
+        <div class="achieve-kicker">${isJuz ? "Juz Complete" : "Surah Complete"}</div>
+        <div class="achieve-name">${isJuz ? `Juz ${meta.number}` : escapeHtml(meta.name)}</div>
+        <div class="achieve-sub">${isJuz ? "" : `${escapeHtml(meta.englishName)} &middot; `}${meta.count} verses, fully matured</div>
+        <p class="achieve-note">${isJuz
+          ? "An entire juz, cover to cover — every verse has passed its full cure, seven encounters to learn, two more to confirm it held. This one is yours now."
+          : "Every verse has passed its full cure — seven encounters to learn, two more to confirm it held. This one is yours now."}</p>
         <button class="primary-btn" id="achieveCloseBtn" style="max-width:240px;margin:18px auto 0">Alhamdulillah</button>
       </div>
     `;
@@ -745,6 +801,20 @@
             </div>
           </div>
         ` : ""}
+        ${achievements.completedJuz.length ? `
+          <div class="star-divider">${starSvg()}</div>
+          <div class="achievements-section">
+            <div class="muraja-heading">Completed Juz</div>
+            <p class="muraja-sub">A full juz, cover to cover, every verse fully cured.</p>
+            <div class="badge-row">
+              ${achievements.completedJuz.slice().sort((a, b) => a - b).map(num => `
+                <button class="surah-badge" data-juz="${num}" title="Juz ${num} — start a sard">
+                  <span class="badge-en">Juz ${num}</span>
+                </button>
+              `).join("")}
+            </div>
+          </div>
+        ` : ""}
         ${murajaDue.length ? `
           <div class="star-divider">${starSvg()}</div>
           <div class="muraja-section">
@@ -781,7 +851,10 @@
       btn.addEventListener("click", () => startSard(Number(btn.dataset.surah)));
     });
     document.querySelectorAll(".surah-badge").forEach(btn => {
-      btn.addEventListener("click", () => startSard(Number(btn.dataset.surah)));
+      btn.addEventListener("click", () => {
+        if (btn.dataset.juz != null) startJuzSard(Number(btn.dataset.juz));
+        else startSard(Number(btn.dataset.surah));
+      });
     });
   }
 
@@ -2350,15 +2423,38 @@
       .sort((a, b) => a.ayah - b.ayah);
     if (!verses.length) return renderHome();
     cancelAudio();
-    sardSession = { surah: surahNum, verses, idx: 0, stumbles: new Set(), playing: false };
+    sardSession = { surah: surahNum, juz: null, verses, idx: 0, stumbles: new Set(), playing: false };
+    renderSardScreen();
+  }
+  // Same continuous-recitation flow as startSard(), but scoped to a whole
+  // juz instead of a single surah -- reuses every bit of the surah
+  // version's hardening (prefetch, retry, Media Session, double-tap
+  // guard) since it's the exact same session/render machinery, just
+  // sorted across surah boundaries instead of within one. Juz completion
+  // has no muraja'ah cycle of its own (that system is keyed per-surah),
+  // so finishSard() skips the rating step entirely for a juz session --
+  // see there.
+  function startJuzSard(juzNum) {
+    const verses = Object.values(cards)
+      .filter(c => c.juz === juzNum)
+      .sort((a, b) => a.surah - b.surah || a.ayah - b.ayah);
+    if (!verses.length) return renderHome();
+    cancelAudio();
+    sardSession = { surah: null, juz: juzNum, verses, idx: 0, stumbles: new Set(), playing: false };
     renderSardScreen();
   }
 
   function renderSardScreen() {
-    const meta = surahList.find(s => s.number === sardSession.surah);
+    const meta = sardSession.juz == null ? surahList.find(s => s.number === sardSession.surah) : null;
+    const title = sardSession.juz != null
+      ? `Juz ${sardSession.juz}`
+      : (meta ? escapeHtml(meta.englishName) : "Surah " + sardSession.surah);
+    // A juz spans multiple surahs, so the ayah number alone (which resets
+    // per surah) would be ambiguous -- label those rows "surah:ayah"
+    // instead of just the bare ayah number.
     const rows = sardSession.verses.map((v, i) => `
       <div class="sard-line ${i === sardSession.idx ? "current" : i < sardSession.idx ? "done" : ""}" data-i="${i}">
-        <span class="sard-num">${v.ayah}</span>
+        <span class="sard-num">${sardSession.juz != null ? `${v.surah}:${v.ayah}` : v.ayah}</span>
         <span class="sard-dots">${i < sardSession.idx ? "recited" : i === sardSession.idx ? "reciting now" : ""}</span>
       </div>
     `).join("");
@@ -2371,7 +2467,7 @@
       <div class="container">
         <div class="hero" style="padding-top:12px;padding-bottom:4px">
           <div class="hero-eyebrow">Sard · Continuous Recitation</div>
-          <h1 style="font-size:1.5rem">${meta ? escapeHtml(meta.englishName) : "Surah " + sardSession.surah}</h1>
+          <h1 style="font-size:1.5rem">${title}</h1>
           <p>Recite from memory, verse by verse, without stopping. Text stays hidden — this tests the whole chain, not one link at a time.</p>
         </div>
         <div class="sard-controls">
@@ -2478,7 +2574,33 @@
 
   function finishSard() {
     cancelAudio();
-    const { surah, verses, stumbles } = sardSession;
+    const { surah, juz, verses, stumbles } = sardSession;
+    // Juz completion has no muraja'ah cycle of its own -- that scheduler
+    // is keyed per-surah (see applySardRating/muraja above) and a juz
+    // spans multiple surahs, so there's no single cycle to adjust. Record
+    // the stumbled verses same as a surah sard, but skip straight to a
+    // plain completion screen instead of a rating that wouldn't actually
+    // go anywhere.
+    if (juz != null) {
+      stumbles.forEach(i => {
+        const v = verses[i];
+        const key = cardKey(v.surah, v.ayah);
+        if (cards[key]) cards[key].struggleCount = (cards[key].struggleCount || 0) + 1;
+      });
+      saveCards();
+      screenEl.innerHTML = `
+        <div class="container">
+          <div class="complete-screen">
+            <div class="complete-emoji">﴾ ﴿</div>
+            <h2>Juz ${juz} — recited in full</h2>
+            <p>${verses.length} verses${stumbles.size ? `, ${stumbles.size} marked as rough` : ""}. Alhamdulillah.</p>
+            <button class="primary-btn" id="sardDoneBtn" style="max-width:280px;margin:18px auto 0">Continue</button>
+          </div>
+        </div>
+      `;
+      document.getElementById("sardDoneBtn").addEventListener("click", () => { sardSession = null; renderHome(); });
+      return;
+    }
     const meta = surahList.find(s => s.number === surah);
     screenEl.innerHTML = `
       <div class="container">
@@ -3420,9 +3542,16 @@
   // rather than picking one, so a badge earned on either device survives
   // a sync regardless of which side happens to be "newer."
   function mergeAchievements(local, remote) {
-    const localList = (local && local.completedSurahs) || [];
-    const remoteList = (remote && remote.completedSurahs) || [];
-    return { completedSurahs: Array.from(new Set([...localList, ...remoteList])) };
+    const union = (a, b) => Array.from(new Set([...(a || []), ...(b || [])]));
+    // Object.assign-based (not a literal object naming only the fields
+    // this function knows about) so completedJuz -- or any future
+    // achievement list -- survives a merge even if this function is never
+    // updated for it, the same class of silent-field-drop bug already
+    // found and fixed in Muhkam's own progress merge today.
+    return Object.assign({}, remote, local, {
+      completedSurahs: union(local && local.completedSurahs, remote && remote.completedSurahs),
+      completedJuz: union(local && local.completedJuz, remote && remote.completedJuz),
+    });
   }
 
   // How far into actual mastery a card has gotten -- mature always outranks
