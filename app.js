@@ -3499,6 +3499,28 @@
     if (window.CloudSync && window.CloudSync.user) window.CloudSync.pushProgress(buildProgressPayload());
   }
 
+  // Pulls the cloud copy and merges it into local progress, then always
+  // pushes the merged result back up -- not only when the cloud had
+  // nothing. A cloud document can exist with progress that's missing or
+  // behind what this device already has (e.g. a push from this account
+  // genuinely never landed) -- pulling alone would silently leave that
+  // gap in place until the next review happens to trigger a save. Used
+  // by both boot() (runs once automatically) and the "Sync now" button,
+  // which exists because a device only ever auto-pulls once, at boot --
+  // progress made on another device afterward never shows up here until
+  // either a full reload or an explicit manual sync.
+  async function syncFromCloud() {
+    if (!(window.CloudSync && window.CloudSync.user)) return { found: false };
+    const remote = await window.CloudSync.pullProgress();
+    const found = !!remote;
+    if (remote) applyProgressPayload(remote);
+    // Awaited (not fire-and-forget): a caller reporting "uploaded" to the
+    // user needs that to mean the write actually happened, not just that
+    // it was scheduled.
+    await window.CloudSync.pushProgressNow(buildProgressPayload());
+    return { found, versesInCloud: found ? Object.keys(remote.cards || {}).length : 0 };
+  }
+
   async function boot() {
     loadAll();
     topnavEl.querySelectorAll(".nav-btn").forEach(btn => {
@@ -3509,12 +3531,39 @@
     renderReciterSelect();
     wireMediaSessionActions();
 
+    const syncNowBtn = document.getElementById("syncNowBtn");
+    const syncStatusEl = document.getElementById("syncStatus");
+    if (syncNowBtn) {
+      syncNowBtn.addEventListener("click", async () => {
+        if (!(window.CloudSync && window.CloudSync.user)) {
+          if (syncStatusEl) syncStatusEl.textContent = "Not signed in.";
+          return;
+        }
+        syncNowBtn.disabled = true;
+        if (syncStatusEl) syncStatusEl.textContent = "Syncing…";
+        try {
+          const result = await syncFromCloud();
+          renderReciterSelect();
+          if (document.querySelector(".today-card")) renderHome();
+          if (syncStatusEl) {
+            syncStatusEl.textContent = result.found
+              ? `Synced — found ${result.versesInCloud} verse(s) in the cloud; this device's progress was uploaded too.`
+              : "The cloud had no saved progress for this account — this device's progress was uploaded.";
+          }
+        } catch (e) {
+          // Show the real reason (e.g. Firestore's own error code, like
+          // "permission-denied") instead of a generic guess.
+          if (syncStatusEl) syncStatusEl.textContent = `Sync failed: ${(e && (e.code || e.message)) || "unknown error"}`;
+        } finally {
+          syncNowBtn.disabled = false;
+        }
+      });
+    }
+
     if (window.CloudSync && window.CloudSync.user) {
       try {
-        const remote = await window.CloudSync.pullProgress();
-        if (remote) applyProgressPayload(remote);
+        await syncFromCloud();
         renderReciterSelect();
-        pushToCloud();
       } catch (e) { /* offline -- continue with local state */ }
     }
 

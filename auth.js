@@ -139,6 +139,7 @@
 
     let mode = "signin";
     let pushTimer = null;
+    let pendingPushPayload = null;
 
     function setError(msg) { errorEl.textContent = msg || ""; }
 
@@ -203,7 +204,25 @@
     });
 
     if (accountBtn) {
-      accountBtn.addEventListener("click", () => accountModal.classList.remove("hidden"));
+      accountBtn.addEventListener("click", () => {
+        accountModal.classList.remove("hidden");
+        // Shows the REAL last-write outcome, independent of whatever the
+        // Sync now button's status text last said -- normal background
+        // saves (completing a review) happen silently, and this is the
+        // only place their actual success/failure is visible at all.
+        const syncDiagEl = document.getElementById("lastSyncDiagnostic");
+        if (syncDiagEl && window.CloudSync) {
+          if (window.CloudSync.lastPushError) {
+            syncDiagEl.textContent = `Last cloud save FAILED: ${window.CloudSync.lastPushError}`;
+          } else if (window.CloudSync.lastPushAt) {
+            const secs = Math.round((Date.now() - window.CloudSync.lastPushAt) / 1000);
+            const ago = secs < 60 ? `${secs}s ago` : `${Math.round(secs / 60)}m ago`;
+            syncDiagEl.textContent = `Last cloud save: successful, ${ago}.`;
+          } else {
+            syncDiagEl.textContent = "No cloud save has happened yet this session.";
+          }
+        }
+      });
       document.getElementById("accountClose").addEventListener("click", () => accountModal.classList.add("hidden"));
       accountModal.addEventListener("click", e => { if (e.target === accountModal) accountModal.classList.add("hidden"); });
       signOutBtn.addEventListener("click", () => signOut(auth));
@@ -215,9 +234,17 @@
     window.CloudSync = {
       appId: APP_ID,
       user: null,
+      lastPushError: null,
+      lastPushAt: null,
       async pullProgress() {
         if (!this.user) return null;
-        const snap = await getDoc(doc(db, "apps", APP_ID, "users", this.user.uid));
+        // Timeout-guarded for the same reason the approval check below is:
+        // a getDoc() against an unreachable network with no persistence
+        // cache can hang indefinitely instead of rejecting, which without
+        // this would leave boot() (and the "Sync now" button) stuck
+        // forever instead of falling back to local progress or surfacing
+        // an error.
+        const snap = await withTimeout(getDoc(doc(db, "apps", APP_ID, "users", this.user.uid)), 8000);
         if (!snap.exists()) return null;
         const data = snap.data();
         if (!data.progressJson) return null;
@@ -225,23 +252,75 @@
       },
       pushProgress(payload) {
         if (!this.user) return;
+        pendingPushPayload = payload;
         clearTimeout(pushTimer);
-        pushTimer = setTimeout(() => {
-          setDoc(doc(db, "apps", APP_ID, "users", this.user.uid), {
-            email: this.user.email || null,
-            displayName: this.user.displayName || null,
-            progressJson: JSON.stringify(payload),
-            updatedAt: serverTimestamp(),
-            // Flat fields (not buried in progressJson) so the Firestore
-            // console's table view is scannable/sortable without opening
-            // every document.
-            versesMemorized: Object.keys(payload.cards || {}).length,
-            streak: (payload.stats && payload.stats.streak) || 0,
-            lastActiveDate: (payload.stats && payload.stats.lastStudyDate) || null,
-          }, { merge: true }).catch(() => { /* offline — next save will retry */ });
-        }, 800);
+        pushTimer = setTimeout(() => this.flushPush(), 800);
+      },
+      // The actual Firestore write, shared by the fire-and-forget debounced
+      // path and the awaited manual path below.
+      _writeToCloud(payload) {
+        return setDoc(doc(db, "apps", APP_ID, "users", this.user.uid), {
+          email: this.user.email || null,
+          displayName: this.user.displayName || null,
+          progressJson: JSON.stringify(payload),
+          updatedAt: serverTimestamp(),
+          // Flat fields (not buried in progressJson) so the Firestore
+          // console's table view is scannable/sortable without opening
+          // every document.
+          versesMemorized: Object.keys(payload.cards || {}).length,
+          streak: (payload.stats && payload.stats.streak) || 0,
+          lastActiveDate: (payload.stats && payload.stats.lastStudyDate) || null,
+        }, { merge: true }).then(() => {
+          this.lastPushError = null;
+          this.lastPushAt = Date.now();
+        }).catch(err => {
+          // Genuinely silent before -- the old comment here said "next
+          // save will retry," which was simply false: nothing retried
+          // unless the user happened to make more progress later. Now the
+          // real reason is at least inspectable (Account modal), plus one
+          // automatic retry for the common case of a brief network blip.
+          this.lastPushError = (err && (err.code || err.message)) || "unknown error";
+          console.warn("Wird cloud push failed:", err);
+          throw err;
+        });
+      },
+      // Writes whatever's pending right now, bypassing the debounce delay.
+      // Called on the normal 800ms timer, and also on visibilitychange /
+      // pagehide -- otherwise a tab closed or backgrounded within that
+      // window loses the write entirely, which is exactly the kind of
+      // silent gap that can make progress made on one device never
+      // actually reach the cloud for another device to pull. Fire-and-
+      // forget by design, with one automatic retry for a brief network blip.
+      flushPush(isRetry) {
+        clearTimeout(pushTimer);
+        const payload = pendingPushPayload;
+        pendingPushPayload = null;
+        if (!payload || !this.user) return;
+        this._writeToCloud(payload).catch(() => {
+          if (!isRetry) {
+            setTimeout(() => {
+              if (pendingPushPayload === null) {
+                pendingPushPayload = payload;
+                this.flushPush(true);
+              }
+            }, 5000);
+          }
+        });
+      },
+      // Awaited variant for callers that need to know the real outcome
+      // (the manual "Sync now" button) rather than just having a write
+      // queued.
+      async pushProgressNow(payload) {
+        if (!this.user) throw new Error("not signed in");
+        clearTimeout(pushTimer);
+        pendingPushPayload = null;
+        await this._writeToCloud(payload);
       },
     };
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") window.CloudSync.flushPush();
+    });
+    window.addEventListener("pagehide", () => window.CloudSync.flushPush());
 
     onAuthStateChanged(auth, async user => {
       window.CloudSync.user = user;
