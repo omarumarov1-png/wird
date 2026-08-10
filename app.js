@@ -3423,19 +3423,36 @@
     return { completedSurahs: Array.from(new Set([...localList, ...remoteList])) };
   }
 
+  // How far into actual mastery a card has gotten -- mature always outranks
+  // reviewing, which always outranks learning, and within a phase, further
+  // along its own ladder (learningStep/reviewStep, or interval once mature)
+  // outranks less far. Used ahead of raw reps to decide which side of a
+  // sync a card's progress should come from: reps only counts how many
+  // times a card was EVER reviewed, not how well it's actually going --
+  // five encounters full of lapses (still stuck in early learning) isn't
+  // more "invested" than two clean encounters that reached reviewing.
+  function masteryRank(card) {
+    ensurePhaseFields(card);
+    if (card.phase === "mature") return 1000 + (card.interval || 0);
+    if (card.phase === "reviewing") return 100 + (card.reviewStep || 0);
+    return card.learningStep || 0;
+  }
   // Merge, not overwrite: this app's whole reason for syncing is that a
   // user may ALREADY have divergent, real progress on two unsynced devices
   // by the time they first sign in on the second one. A naive "cloud wins"
   // or "local wins" would silently drop real SM-2 scheduling history on
-  // whichever side loses. Per verse, keep whichever side has more actual
-  // study investment (higher reps; later dueDate as a tiebreak) rather than
-  // picking a side wholesale.
+  // whichever side loses. Per verse, keep whichever side has gotten
+  // further in actual mastery, falling back to reps and then dueDate only
+  // to break a genuine tie, rather than picking a side wholesale.
   function mergeCards(local, remote) {
     const merged = Object.assign({}, local);
     Object.keys(remote || {}).forEach(key => {
       const r = remote[key];
       const l = merged[key];
       if (!l) { merged[key] = r; return; }
+      const rRank = masteryRank(r), lRank = masteryRank(l);
+      if (rRank > lRank) { merged[key] = r; return; }
+      if (rRank < lRank) return;
       const rReps = r.reps || 0, lReps = l.reps || 0;
       if (rReps > lReps) merged[key] = r;
       else if (rReps === lReps && (r.dueDate || "") > (l.dueDate || "")) merged[key] = r;
