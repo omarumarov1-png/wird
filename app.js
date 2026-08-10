@@ -2492,8 +2492,18 @@
         </div>
       </div>
     `;
+    // renderHome() below is async (it awaits ensureSurahList() before
+    // replacing screenEl.innerHTML), so these buttons stay live and
+    // clickable in the DOM for a real window after the first tap -- a
+    // rushed double-tap (common enough on mobile) would otherwise call
+    // applySardRating() a second time, compounding the cycle-day
+    // adjustment twice instead of once. Every other answer/rating handler
+    // in this app already guards against exactly this; this one didn't.
+    let submitted = false;
     document.querySelectorAll(".sard-rate-btn").forEach(btn => {
       btn.addEventListener("click", () => {
+        if (submitted) return;
+        submitted = true;
         applySardRating(surah, btn.dataset.rating);
         stumbles.forEach(i => {
           const v = verses[i];
