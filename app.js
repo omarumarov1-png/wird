@@ -1089,19 +1089,34 @@
     if (!pageListenState || !pageListenState.playing) return;
     const v = pageListenState.verses[pageListenState.idx];
     const container = document.querySelector(".listen-line.current .listen-line-arabic");
+    const btn = document.getElementById("listenPlayBtn");
+    if (btn) clearPlayError(btn);
+    // Prefetch the next verse while this one plays -- same reasoning as
+    // Sard's own prefetch: a continuous playback feature is exactly where
+    // a mid-stream network hiccup is most disruptive.
+    const next = pageListenState.verses[pageListenState.idx + 1];
+    if (next) warmAudioCache(audioUrlFor(next.surah, next.ayah));
     playAudioWithHighlight(v.surah, v.ayah, container, () => {
       if (!pageListenState || !pageListenState.playing) return;
       if (pageListenState.idx >= pageListenState.verses.length - 1) {
         pageListenState.playing = false;
-        const btn = document.getElementById("listenPlayBtn");
-        if (btn) { btn.textContent = "▶"; btn.classList.remove("playing"); }
+        const b = document.getElementById("listenPlayBtn");
+        if (b) { b.textContent = "▶"; b.classList.remove("playing"); }
         return;
       }
       pageListenState.idx++;
       drawPageListen();
-      const btn = document.getElementById("listenPlayBtn");
-      if (btn) { btn.textContent = "⏸"; btn.classList.add("playing"); }
+      const b = document.getElementById("listenPlayBtn");
+      if (b) { b.textContent = "⏸"; b.classList.add("playing"); }
       playCurrentPageListenVerse();
+    }, () => {
+      // A genuine failure (retries already exhausted) used to fall
+      // through to the same callback as a real completion, silently
+      // advancing past the verse that actually failed -- see the matching
+      // fix in Sard's playCurrentSardVerse() for the full reasoning.
+      if (!pageListenState) return;
+      pageListenState.playing = false;
+      if (btn) { btn.textContent = "▶"; btn.classList.remove("playing"); showPlayError(btn); }
     });
   }
   function stepPageListen(delta) {
@@ -1109,6 +1124,25 @@
     pageListenState.playing = false;
     pageListenState.idx = Math.max(0, Math.min(pageListenState.verses.length - 1, pageListenState.idx + delta));
     drawPageListen();
+  }
+  // Same move as stepPageListen(), but keeps playing at the new verse if
+  // it was already playing -- what a lock-screen/Bluetooth previous/next
+  // button actually means (skip within the stream), as opposed to the
+  // in-app step buttons which deliberately stop for a manual, silent
+  // browse.
+  function pageListenStepAndContinue(delta) {
+    if (!pageListenState) return;
+    const wasPlaying = pageListenState.playing;
+    cancelAudio();
+    pageListenState.playing = false;
+    pageListenState.idx = Math.max(0, Math.min(pageListenState.verses.length - 1, pageListenState.idx + delta));
+    drawPageListen();
+    if (wasPlaying) {
+      pageListenState.playing = true;
+      const btn = document.getElementById("listenPlayBtn");
+      if (btn) { btn.textContent = "⏸"; btn.classList.add("playing"); }
+      playCurrentPageListenVerse();
+    }
   }
 
   function startDrill(key) {
@@ -1218,12 +1252,17 @@
       currentAudio.pause();
       navigator.mediaSession.playbackState = "paused";
     });
-    // Prev/next only make real sense inside Sard's fixed verse sequence --
-    // a lone review card has no "next" to speak of, so these are silent
-    // no-ops outside a Sard session rather than doing something surprising.
-    safeHandler("previoustrack", () => { if (sardSession) retreatSard(); });
+    // Prev/next only make real sense inside a fixed verse sequence -- Sard
+    // or the Mushaf page-listen view -- a lone review card has no "next"
+    // to speak of, so these are silent no-ops otherwise rather than doing
+    // something surprising.
+    safeHandler("previoustrack", () => {
+      if (sardSession) retreatSard();
+      else if (pageListenState) pageListenStepAndContinue(-1);
+    });
     safeHandler("nexttrack", () => {
       if (sardSession) advanceSard(sardSession.playing);
+      else if (pageListenState) pageListenStepAndContinue(1);
     });
   }
   // Called at the top of every top-level screen render so leftover state
