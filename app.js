@@ -1310,19 +1310,21 @@
   //     successfully (the 'ended' event), never alongside a live stream,
   //     so it can't contend for bandwidth with the audio someone is
   //     actually listening to right now.
-  // The warm fetch uses no-cors mode, which -- unlike a normal fetch() --
-  // never fails just because a CDN doesn't send Access-Control-Allow-
-  // Origin (the same long-standing browser exception that lets a plain
-  // <audio src> load cross-origin media at all); the response comes back
-  // opaque (no readable status), but the bytes are real and blob-able, and
-  // the Service Worker still caches them for next time regardless. Each
-  // unique URL is only ever warmed once per page load.
+  // Explicit CORS mode, not no-cors -- everyayah.com and audio.qurancdn.com
+  // both send Access-Control-Allow-Origin: * (verified live), and no-cors
+  // was a real, silent mistake here: an opaque response's blob() ALWAYS
+  // resolves with size 0 (verified live too -- the browser deliberately
+  // blocks JS from reading any opaque response body, not just its
+  // headers/status), so this fallback path was dead code from day one --
+  // it always deleted its own cache entry a moment after "warming" it,
+  // never actually storing a playable blob for cachedBlobFor() to return.
+  // Each unique URL is only ever warmed once per page load.
   const audioBlobUrlCache = new Map();
   function warmAudioCache(url) {
     if (audioBlobUrlCache.has(url)) return;
     audioBlobUrlCache.set(url, "pending");
-    fetch(url, { mode: "no-cors" }).then((res) => {
-      if (!res.ok && res.type !== "opaque") { audioBlobUrlCache.delete(url); return null; }
+    fetch(url, { mode: "cors" }).then((res) => {
+      if (!res.ok) { audioBlobUrlCache.delete(url); return null; }
       return res.blob();
     }).then((blob) => {
       if (blob && blob.size) audioBlobUrlCache.set(url, URL.createObjectURL(blob));
