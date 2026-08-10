@@ -12,7 +12,7 @@
 // version on every deploy -- that's what forces every open tab to fetch a
 // fresh shell and drop the old cache on its next activate, the same
 // invalidation switch the rest of the app already uses.
-const CACHE_VERSION = "20260815";
+const CACHE_VERSION = "20260816";
 const SHELL_CACHE = `wird-shell-v${CACHE_VERSION}`;
 const RUNTIME_CACHE = `wird-runtime-v${CACHE_VERSION}`;
 
@@ -78,10 +78,26 @@ async function cacheFirstNoRevalidate(req) {
   const cached = await cache.match(req);
   if (cached) return cached;
   try {
-    const res = await fetch(req);
-    // Cross-origin <audio>/font requests often come through as opaque
-    // (status 0, ok === false) -- still perfectly cacheable and usable.
-    if (res.ok || res.type === "opaque") cache.put(req, res.clone());
+    // Explicit CORS mode, not the original request's own default no-cors
+    // (which is what a plain <audio src>/<link> triggers) -- every host
+    // this is used for (everyayah.com, audio.qurancdn.com, Google Fonts)
+    // sends Access-Control-Allow-Origin: * (verified live), so this gets
+    // a REAL, inspectable response instead of an opaque one.
+    //
+    // This matters a lot: in no-cors mode, fetch() never rejects for an
+    // HTTP-level error -- a URL that 404s or 500s still resolves as an
+    // opaque response with no visible status. The previous version
+    // treated "opaque" itself as good enough to cache, which meant a
+    // single transient server error could get cached as if it were real
+    // audio, PERMANENTLY (cache-first, no revalidation ever revisits it)
+    // -- completely immune to any client-side retry logic, since a retry
+    // just re-triggers this same handler and hits the same poisoned
+    // cache entry instead of ever reaching the network again. A sanity
+    // floor on size also guards against a 200 response that's real but
+    // truncated/empty.
+    const res = await fetch(req.url, { mode: "cors" });
+    const len = Number(res.headers.get("content-length") || "0");
+    if (res.ok && (len === 0 || len > 512)) cache.put(req, res.clone());
     return res;
   } catch (e) {
     return Response.error();
