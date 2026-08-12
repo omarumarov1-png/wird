@@ -20,6 +20,160 @@
   };
   const RECITER_KEY = "wird-reciter-v1";
 
+  // ---------- theme ----------
+  // CSS already carries :root[data-theme="dark"/"light"] overrides (used by
+  // the system prefers-color-scheme fallback) -- this just adds an explicit
+  // manual override on top, same two-theme cycle as the system already
+  // supports, persisted so a choice survives reload.
+  const THEME_KEY = "wird-theme";
+  function currentEffectiveTheme() {
+    const attr = document.documentElement.getAttribute("data-theme");
+    if (attr === "dark" || attr === "light") return attr;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  function initTheme() {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === "dark" || stored === "light") document.documentElement.setAttribute("data-theme", stored);
+    updateThemeToggleIcon();
+  }
+  function updateThemeToggleIcon() {
+    const btn = document.getElementById("themeToggleBtn");
+    if (btn) btn.textContent = currentEffectiveTheme() === "dark" ? "☀" : "☾";
+  }
+  function toggleTheme() {
+    const next = currentEffectiveTheme() === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    localStorage.setItem(THEME_KEY, next);
+    updateThemeToggleIcon();
+  }
+  initTheme();
+
+  // The app already has real offline support built (blob caching, retry
+  // logic, everything works without a network) -- but nothing ever told
+  // the user THAT they were offline, so it was impossible to tell "this is
+  // slow" from "this genuinely has no signal" from the UI alone.
+  function wireOfflineIndicator() {
+    const pill = document.getElementById("offlinePill");
+    if (!pill) return;
+    const update = () => pill.classList.toggle("hidden", navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    update();
+  }
+
+  // Pull-to-refresh on the Today/Home screen only -- everywhere else
+  // (mid-review, browsing the Library) a stray downward drag re-syncing
+  // and re-rendering out from under the user would be actively disruptive,
+  // not helpful. Whole-page scroll (no nested scroll container exists in
+  // this layout) means "already at the top" is just window.scrollY <= 0.
+  // syncFromCloud() already no-ops safely when signed out, so this never
+  // needs its own guard for that case -- it just becomes a harmless
+  // "nothing to pull" gesture.
+  function wirePullToRefresh() {
+    const indicator = document.getElementById("pullIndicator");
+    if (!indicator) return;
+    const THRESHOLD = 68;
+    let startY = null, pulling = false, refreshing = false;
+    document.addEventListener("touchstart", e => {
+      if (activeScreenName !== "home" || window.scrollY > 0 || refreshing) { startY = null; return; }
+      startY = e.touches[0].clientY;
+      pulling = false;
+    }, { passive: true });
+    document.addEventListener("touchmove", e => {
+      if (startY === null || refreshing) return;
+      const dy = e.touches[0].clientY - startY;
+      if (dy <= 0) { pulling = false; indicator.style.transform = ""; indicator.classList.remove("armed"); return; }
+      if (window.scrollY > 0) return; // scrolled away from top mid-gesture -- stop tracking
+      pulling = true;
+      const dist = Math.min(THRESHOLD * 1.6, dy * 0.5); // resistance, same damping feel as native pull-to-refresh
+      indicator.style.transform = `translateY(${dist}px)`;
+      indicator.classList.toggle("armed", dist >= THRESHOLD);
+    }, { passive: true });
+    document.addEventListener("touchend", async () => {
+      if (!pulling) { startY = null; return; }
+      pulling = false;
+      const armed = indicator.classList.contains("armed");
+      if (!armed) { indicator.style.transform = ""; startY = null; return; }
+      refreshing = true;
+      indicator.classList.add("spinning");
+      indicator.style.transform = `translateY(${THRESHOLD}px)`;
+      try { await syncFromCloud(); } catch (e) { /* offline or signed out -- pull-to-refresh just becomes a no-op */ }
+      if (activeScreenName === "home") await renderHome();
+      indicator.classList.remove("spinning", "armed");
+      indicator.style.transform = "";
+      refreshing = false;
+      startY = null;
+    });
+  }
+
+  // ---------- sound effects ----------
+  // Same Web Audio approach as Muhkam (this app's sibling): pure generated
+  // tones, no audio files. Ported rather than shared since the two apps
+  // don't share any code, but the hard-won timing fixes carry over exactly
+  // -- ctx.resume() is async, so scheduling a tone before it actually
+  // resolves schedules it into a context that isn't running yet and it
+  // never plays; iOS also suspends the context again after any idle gap,
+  // so every call has to re-check, not just the first one ever made.
+  const SOUND_KEY = "wird-sound";
+  let soundEnabled = localStorage.getItem(SOUND_KEY) !== "off";
+  let audioCtx = null;
+  function updateSoundToggleIcon() {
+    const btn = document.getElementById("soundToggleBtn");
+    if (btn) btn.textContent = soundEnabled ? "🔊" : "🔇";
+  }
+  function toggleSound() {
+    soundEnabled = !soundEnabled;
+    localStorage.setItem(SOUND_KEY, soundEnabled ? "on" : "off");
+    updateSoundToggleIcon();
+  }
+  function getAudioCtx() {
+    if (!audioCtx) {
+      const Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return null;
+      audioCtx = new Ctx();
+    }
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    return audioCtx;
+  }
+  function withRunningAudioCtx(fn) {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === "suspended") ctx.resume().then(() => fn(ctx)).catch(() => {});
+    else fn(ctx);
+  }
+  // Mobile browsers suspend AudioContext until a genuine user gesture
+  // unlocks it -- warm it up on the very first tap anywhere so the first
+  // real rating isn't the one that gets silently dropped.
+  document.addEventListener("pointerdown", getAudioCtx, { once: true, passive: true });
+  function playTone(ctx, freq, startOffset, duration, gainPeak) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    const t0 = ctx.currentTime + startOffset;
+    gain.gain.setValueAtTime(0.0001, t0);
+    gain.gain.exponentialRampToValueAtTime(gainPeak, t0 + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + duration + 0.03);
+  }
+  function playGoodSound() {
+    if (!soundEnabled) return;
+    withRunningAudioCtx(ctx => {
+      playTone(ctx, 659.25, 0, 0.14, 0.16);
+      playTone(ctx, 987.77, 0.08, 0.22, 0.14);
+    });
+  }
+  function playAgainSound() {
+    if (!soundEnabled) return;
+    withRunningAudioCtx(ctx => {
+      playTone(ctx, 207.65, 0, 0.24, 0.13);
+      playTone(ctx, 174.61, 0.06, 0.3, 0.11);
+    });
+  }
+
   const CARDS_KEY = "wird-cards-v1";
   const SETTINGS_KEY = "wird-settings-v1";
   const STATS_KEY = "wird-stats-v1";
@@ -122,6 +276,7 @@
     pushToCloud();
   }
 
+  let activeScreenName = "home"; // boot() renders Home directly rather than through switchScreen(), so this has to start pre-set to match
   let session = null;       // { queue: [card,...], idx, total, revealed, currentMode }
   let currentReviewCard = null; // whatever verse card is on screen right now, for Voice Mirror
   let currentAudio = null;
@@ -475,7 +630,16 @@
     };
   }
 
+  // Vibration API has no iOS Safari support at all (silently a no-op
+  // there) and needs a real user gesture on Android -- both cases the
+  // try/catch + feature check below already cover, so every call site can
+  // just fire-and-forget without its own guard.
+  function haptic(pattern) {
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* unsupported or blocked -- silently skip */ }
+  }
   function applyRating(card, rating) {
+    haptic(rating === "again" ? 35 : 12);
+    rating === "again" ? playAgainSound() : playGoodSound();
     ensurePhaseFields(card);
     if (rating === "again") {
       if (card.phase === "learning") card.learningStep = 0;
@@ -647,6 +811,55 @@
       if (achievementQueue.length) setTimeout(processAchievementQueue, 500);
     });
   }
+  // A one-shot canvas burst, not a library -- consistent with the rest of
+  // this app's zero-dependency, no-build-step approach (same spirit as the
+  // hand-built SVG growth chart on the Progress page). Removes its own
+  // canvas once the burst finishes, and does nothing at all under
+  // prefers-reduced-motion.
+  function fireConfetti() {
+    if (window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const canvas = document.createElement("canvas");
+    canvas.className = "confetti-canvas";
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { canvas.remove(); return; }
+    const colors = ["#a97e1f", "#d4af37", "#0e6d59", "#2ba184", "#9c3b3b"];
+    const particles = Array.from({ length: 70 }, () => ({
+      x: canvas.width / 2 + (Math.random() - 0.5) * 140,
+      y: canvas.height * 0.32 + (Math.random() - 0.5) * 40,
+      vx: (Math.random() - 0.5) * 9,
+      vy: -Math.random() * 9 - 4,
+      size: 4 + Math.random() * 4,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rot: Math.random() * Math.PI * 2,
+      vrot: (Math.random() - 0.5) * 0.3,
+    }));
+    const gravity = 0.28;
+    const duration = 1700;
+    const start = performance.now();
+    function frame(now) {
+      const elapsed = now - start;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach(p => {
+        p.vy += gravity;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.rot += p.vrot;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, 1 - elapsed / duration);
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+        ctx.restore();
+      });
+      if (elapsed < duration) requestAnimationFrame(frame);
+      else canvas.remove();
+    }
+    requestAnimationFrame(frame);
+  }
   function showMasteryCelebration(meta, onClose) {
     const overlay = document.getElementById("achievementOverlay");
     if (!overlay) { if (onClose) onClose(); return; }
@@ -664,6 +877,8 @@
       </div>
     `;
     overlay.classList.add("visible");
+    fireConfetti();
+    haptic([20, 40, 20, 40, 40]);
     let closed = false;
     const close = () => {
       if (closed) return;
@@ -1055,10 +1270,10 @@
           <p>The whole picture — how far you've come, not just what's due today.</p>
         </div>
         <div class="stat-row" style="grid-template-columns:repeat(4,1fr)">
-          <div class="stat-box"><b>${stats.streak}</b><span>day streak${stats.longestStreak > stats.streak ? `<br><i class="stat-best">best ${stats.longestStreak}</i>` : ""}</span></div>
-          <div class="stat-box"><b>${allCards.length}</b><span>total verses</span></div>
-          <div class="stat-box"><b>${counts.mature}</b><span>mature</span></div>
-          <div class="stat-box"><b>${stats.totalReviews}</b><span>reviews done</span></div>
+          <div class="stat-box"><b data-count="${stats.streak}">0</b><span>day streak${stats.longestStreak > stats.streak ? `<br><i class="stat-best">best ${stats.longestStreak}</i>` : ""}</span></div>
+          <div class="stat-box"><b data-count="${allCards.length}">0</b><span>total verses</span></div>
+          <div class="stat-box"><b data-count="${counts.mature}">0</b><span>mature</span></div>
+          <div class="stat-box"><b data-count="${stats.totalReviews}">0</b><span>reviews done</span></div>
         </div>
         ${allCards.length === 0 ? `
           <div class="empty-state">
@@ -1119,6 +1334,29 @@
     document.querySelectorAll("#screen .juz-cell-clickable").forEach(cell => {
       cell.addEventListener("click", () => startJuzSard(Number(cell.dataset.juz)));
     });
+    animateCountUps(screenEl);
+  }
+
+  // Animates every [data-count] element's textContent from 0 up to its
+  // target integer -- purely decorative, so a reduced-motion preference
+  // just snaps straight to the final value instead of skipping the
+  // element entirely (the number still needs to actually show).
+  function animateCountUps(container) {
+    const els = container.querySelectorAll("[data-count]");
+    const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    els.forEach(el => {
+      const target = Number(el.dataset.count) || 0;
+      if (reduce || target === 0) { el.textContent = target; return; }
+      const duration = Math.min(900, 250 + target * 12);
+      const start = performance.now();
+      function tick(now) {
+        const p = Math.min(1, (now - start) / duration);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(eased * target);
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    });
   }
 
   // ---------- library ----------
@@ -1131,8 +1369,9 @@
     function row(s) {
       const inSet = Object.keys(cards).some(k => k.startsWith(s.number + ":"));
       const count = Object.keys(cards).filter(k => k.startsWith(s.number + ":")).length;
+      const search = `${s.number} ${s.englishName} ${s.englishNameTranslation} ${s.name}`.toLowerCase();
       return `
-        <button class="surah-row" data-surah="${s.number}">
+        <button class="surah-row" data-surah="${s.number}" data-search="${escapeHtml(search)}">
           <div class="surah-num">${s.number}</div>
           <div class="surah-meta">
             <div class="en">${escapeHtml(s.englishName)} <span style="color:var(--text-muted);font-weight:400">— ${escapeHtml(s.englishNameTranslation)}</span></div>
@@ -1150,18 +1389,51 @@
           <h1 style="font-size:1.6rem">Library</h1>
           <p>Browse the Qur'an and add verses to your memorization set.</p>
         </div>
-        <div class="juz-group">
+        <div class="lib-search-wrap">
+          <span class="lib-search-ic">🔍</span>
+          <input id="libSearch" placeholder="Search by name or number…" autocomplete="off"/>
+        </div>
+        <div class="juz-group" id="libAmmaGroup">
           <div class="juz-heading">Juz 'Amma — recommended starting point</div>
           <div class="surah-list">${amma.map(row).join("")}</div>
         </div>
-        <div class="juz-group">
+        <div class="juz-group" id="libRestGroup">
           <div class="juz-heading">The rest of the Qur'an</div>
           <div class="surah-list">${rest.map(row).join("")}</div>
+        </div>
+        <div class="empty-state hidden" id="libSearchEmpty">
+          <div class="glyph">﴾ ﴿</div>
+          <p>No surahs match "<span id="libSearchEmptyQ"></span>".</p>
         </div>
       </div>
     `;
     document.querySelectorAll(".surah-row").forEach(btn => {
       btn.addEventListener("click", () => renderSurahBrowser(Number(btn.dataset.surah)));
+    });
+    wireLibrarySearch();
+  }
+
+  function wireLibrarySearch() {
+    const input = document.getElementById("libSearch");
+    if (!input) return;
+    const rows = Array.from(document.querySelectorAll(".surah-row"));
+    const groups = [document.getElementById("libAmmaGroup"), document.getElementById("libRestGroup")];
+    const emptyEl = document.getElementById("libSearchEmpty");
+    const emptyQEl = document.getElementById("libSearchEmptyQ");
+    input.addEventListener("input", () => {
+      const q = input.value.trim().toLowerCase();
+      let anyVisible = false;
+      rows.forEach(r => {
+        const match = !q || r.dataset.search.includes(q);
+        r.classList.toggle("hidden", !match);
+        if (match) anyVisible = true;
+      });
+      groups.forEach(g => {
+        const hasVisible = g.querySelector(".surah-row:not(.hidden)");
+        g.classList.toggle("hidden", !hasVisible);
+      });
+      emptyEl.classList.toggle("hidden", anyVisible || !q);
+      if (emptyQEl) emptyQEl.textContent = input.value.trim();
     });
   }
 
@@ -1938,6 +2210,14 @@
   function cantListenBtnHtml() {
     return `<button type="button" class="cant-listen-btn" id="cantListenBtn">Can't listen right now</button>`;
   }
+  // ArrowLeft/ArrowRight rating shortcuts already existed on every one of
+  // these cards but had zero visible hint anywhere -- hidden entirely
+  // unless someone happened to try an arrow key. CSS-gated to
+  // hover:hover+pointer:fine so it doesn't show up on touch-only devices,
+  // where these keys don't apply at all.
+  function kbdHintHtml() {
+    return `<div class="kbd-hint"><kbd>&larr;</kbd> again &nbsp;&middot;&nbsp; good <kbd>&rarr;</kbd></div>`;
+  }
   // onSettle lets the caller flip its own local `settled` flag first, so a
   // loop/timer chain already in flight (Listen & Recall's replay loop,
   // Fade Recall's single autoplay) doesn't fire again into whatever
@@ -2110,6 +2390,7 @@
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
             <div class="card-translation">${escapeHtml(card.translation)}</div>
             ${cantListenBtnHtml()}
+            ${kbdHintHtml()}
           </div>
         </div>
       </div>
@@ -2191,6 +2472,7 @@
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" id="fadeArabic">${faded}</div></div>
             <div class="card-translation" id="fadeTranslation"></div>
             ${cantListenBtnHtml()}
+            ${kbdHintHtml()}
           </div>
         </div>
       </div>
@@ -3213,6 +3495,7 @@
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" dir="rtl" id="vocabFlashWord">${escapeHtml(word.ar)}</div></div>
             <div class="card-translation" id="vocabFlashMeaning"></div>
             ${cantListenBtnHtml()}
+            ${kbdHintHtml()}
           </div>
         </div>
       </div>
@@ -3421,13 +3704,27 @@
   }
 
   // ---------- nav ----------
-  function switchScreen(name) {
+  // Every render* function replaces #screen's innerHTML wholesale with no
+  // transition at all -- a plain instant swap. Rather than touch every one
+  // of them individually, this single choke point (every nav tap and the
+  // brand-button "home" shortcut route through here) awaits whichever
+  // render just ran, then replays a fade-in on the container -- removing
+  // the class first and forcing a reflow (offsetWidth read) so the
+  // animation restarts even for two taps on the same screen in a row,
+  // where the class would otherwise already be present and no-op.
+  async function switchScreen(name) {
+    activeScreenName = name;
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.screen === name));
-    if (name === "home") renderHome();
-    else if (name === "library") renderLibrary();
-    else if (name === "mushaf") renderMushaf();
-    else if (name === "vocab") renderVocabHome();
-    else if (name === "progress") renderProgress();
+    let renderPromise;
+    if (name === "home") renderPromise = renderHome();
+    else if (name === "library") renderPromise = renderLibrary();
+    else if (name === "mushaf") renderPromise = renderMushaf();
+    else if (name === "vocab") renderPromise = renderVocabHome();
+    else if (name === "progress") renderPromise = renderProgress();
+    await renderPromise;
+    screenEl.classList.remove("screen-fade-in");
+    void screenEl.offsetWidth;
+    screenEl.classList.add("screen-fade-in");
   }
 
   function renderReciterSelect() {
@@ -3933,6 +4230,11 @@
     });
     document.getElementById("brandBtn").addEventListener("click", () => switchScreen("home"));
     document.getElementById("settingsBtn").addEventListener("click", openSettingsModal);
+    document.getElementById("themeToggleBtn").addEventListener("click", toggleTheme);
+    document.getElementById("soundToggleBtn").addEventListener("click", toggleSound);
+    updateSoundToggleIcon();
+    wireOfflineIndicator();
+    wirePullToRefresh();
     renderReciterSelect();
     wireMediaSessionActions();
 
