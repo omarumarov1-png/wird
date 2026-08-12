@@ -216,6 +216,7 @@ body {
 .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 10px; text-align: center; }
 .stat-box b { display: block; font-family: var(--font-display); font-size: 1.5rem; color: var(--gold); }
 .stat-box span { font-size: 0.74rem; color: var(--text-muted); }
+.stat-best { font-style: italic; font-size: 0.68rem; color: var(--gold); opacity: 0.85; }
 
 .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); }
 .empty-state .glyph { font-size: 2.2rem; color: var(--gold); margin-bottom: 10px; }
@@ -469,7 +470,14 @@ body {
   transition: background 0.12s ease;
 }
 .word-tap:hover, .word-tap:active { background: var(--gold-soft); }
-.word-tap.word-playing { background: var(--emerald); color: #fff; transition: background 0.08s ease; }
+/* A filled background + forced white text here used to risk washing out
+   the fine diacritic marks on Arabic script -- WCAG contrast math covers
+   the base letterforms, not those small strokes, and this flashes on a
+   new word roughly every 1-2 seconds during recitation. Keeping the
+   word's own already-legible ink color (never overridden) and marking
+   "currently spoken" with a soft wash + a solid underline instead removes
+   the risk entirely, and reads as calmer during continuous playback. */
+.word-tap.word-playing { background: var(--emerald-soft); box-shadow: inset 0 -3px 0 var(--emerald); transition: background 0.08s ease; }
 .word-tooltip {
   position: absolute;
   z-index: 100;
@@ -666,8 +674,54 @@ body {
 .vocab-tier-label { font-family: var(--font-display); font-weight: 600; font-size: 1rem; color: var(--emerald); }
 .vocab-tier-blurb { font-size: 0.78rem; color: var(--text-muted); margin-top: 5px; line-height: 1.45; }
 
+/* ---------- progress ---------- */
+.progress-section { margin-bottom: 8px; }
+.growth-chart { width: 100%; height: 150px; display: block; }
+.growth-grid { stroke: var(--border); stroke-width: 1; }
+.growth-area { fill: var(--emerald-soft); }
+.growth-line { fill: none; stroke: var(--emerald); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.growth-axis { display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 4px; }
+
+.mastery-bar { display: flex; height: 14px; border-radius: 99px; overflow: hidden; background: var(--surface-2); margin-top: 10px; }
+.mastery-seg { min-width: 3px; }
+.mastery-seg.mastery-mature { background: var(--emerald); }
+.mastery-seg.mastery-young { background: var(--gold); }
+.mastery-seg.mastery-learning { background: var(--ink-red); opacity: 0.75; }
+.mastery-seg.mastery-new { background: var(--border); }
+.mastery-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.mastery-legend-item { font-size: 0.78rem; color: var(--text-muted); display: flex; align-items: center; gap: 6px; }
+.mastery-legend-item b { color: var(--text); font-variant-numeric: tabular-nums; }
+.mastery-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.mastery-dot.mastery-mature { background: var(--emerald); }
+.mastery-dot.mastery-young { background: var(--gold); }
+.mastery-dot.mastery-learning { background: var(--ink-red); opacity: 0.75; }
+.mastery-dot.mastery-new { background: var(--border); }
+
+.juz-progress-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 10px; }
+.juz-cell { aspect-ratio: 1; border: 1.5px solid var(--border); border-radius: 10px; background: var(--surface); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.juz-cell-clickable { cursor: pointer; transition: transform 0.12s ease; }
+.juz-cell-clickable:hover { transform: translateY(-1px); border-color: var(--emerald); }
+.juz-cell-clickable:active { transform: translateY(0); }
+
+.heat-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 10px; }
+.heat-cell { aspect-ratio: 1; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
+.heat-level-1 { background: var(--emerald); opacity: 0.3; }
+.heat-level-2 { background: var(--emerald); opacity: 0.55; }
+.heat-level-3 { background: var(--emerald); opacity: 0.78; }
+.heat-level-4 { background: var(--emerald); opacity: 1; }
+.juz-cell-num { font-family: var(--font-display); font-size: 0.95rem; color: var(--text); font-variant-numeric: tabular-nums; }
+.juz-cell-pct { font-size: 0.62rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.juz-cell-empty { opacity: 0.55; }
+.juz-cell-partial { border-color: var(--gold); background: var(--gold-soft); }
+.juz-cell-partial .juz-cell-num { color: var(--gold); }
+.juz-cell-mature { border-color: var(--emerald); background: var(--emerald-soft); }
+.juz-cell-mature .juz-cell-num, .juz-cell-mature .juz-cell-pct { color: var(--emerald); }
+.juz-cell-complete { border-color: var(--emerald); background: var(--emerald); }
+.juz-cell-complete .juz-cell-num, .juz-cell-complete .juz-cell-pct { color: #fff; }
+
 @media (max-width: 480px) {
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .page-picker { grid-template-columns: repeat(4, 1fr); }
+  .juz-progress-grid { grid-template-columns: repeat(5, 1fr); }
   .topnav { font-size: 0.8rem; }
 }

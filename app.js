@@ -102,7 +102,7 @@
   let cards = {};           // "surah:ayah" -> card object
   let settings = { mode: DEFAULT_STUDY_MODE };
   function currentModeConfig() { return STUDY_MODES[settings.mode] || STUDY_MODES[DEFAULT_STUDY_MODE]; }
-  let stats = { streak: 0, lastStudyDate: null, totalReviews: 0 };
+  let stats = { streak: 0, lastStudyDate: null, totalReviews: 0, longestStreak: 0, dailyLog: {} };
   let achievements = { completedSurahs: [], completedJuz: [] }; // numbers, each recorded once, the moment every ayah the user added for that surah/juz is mature
   let surahCache = {};      // "surahNum" -> {ar: [...], en: [...], audio: [...]}
   let wordsCache = {};      // "surah:ayah" -> [{ar, tr, en}, ...] (word-by-word, quran.com)
@@ -138,7 +138,7 @@
     cards = load(CARDS_KEY, {});
     settings = Object.assign({ mode: DEFAULT_STUDY_MODE }, load(SETTINGS_KEY, {}));
     if (!STUDY_MODES[settings.mode]) settings.mode = DEFAULT_STUDY_MODE;
-    stats = Object.assign({ streak: 0, lastStudyDate: null, totalReviews: 0 }, load(STATS_KEY, {}));
+    stats = Object.assign({ streak: 0, lastStudyDate: null, totalReviews: 0, longestStreak: 0, dailyLog: {} }, load(STATS_KEY, {}));
     surahCache = load(SURAH_CACHE_KEY, {});
     wordsCache = load(WORDS_CACHE_KEY, {});
     segmentsCache = load(SEGMENTS_CACHE_KEY, {});
@@ -227,10 +227,28 @@
   }
 
   // ---------- API ----------
+  // Retries transient failures (a dropped request, a slow DNS lookup) up to
+  // twice more, same RETRY_DELAYS backoff already used for audio playback
+  // in playAudio(). Previously a single fetch() with no retry at all --
+  // callers like ensureSegmentsLoaded()/ensureWordsLoaded() already treat
+  // any failure as "silently degrade, no timing data" (by design, for a
+  // genuinely offline or unsupported case), but that same silent-degrade
+  // was also swallowing ordinary one-off network blips, which is why the
+  // per-word karaoke highlight during recitation would sometimes just
+  // never show up for no visible reason -- the audio itself has its own
+  // retry logic and kept playing fine, so nothing looked broken.
   async function fetchJson(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("Fetch failed: " + url);
-    return res.json();
+    const RETRY_DELAYS = [500, 1500];
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("Fetch failed: " + url);
+        return await res.json();
+      } catch (e) {
+        if (attempt >= RETRY_DELAYS.length) throw e;
+        await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+      }
+    }
   }
 
   async function ensureSurahList() {
@@ -501,7 +519,19 @@
     }
     if (rating === "again" || rating === "hard") card.struggleCount = (card.struggleCount || 0) + 1;
     stats.totalReviews++;
+    logDailyActivity();
     saveStats();
+  }
+
+  // Per-day review counts, kept for the last 90 days only -- powers the
+  // Progress page's activity heatmap. Pruned on every write so the payload
+  // synced to Firestore doesn't grow without bound over months of use.
+  function logDailyActivity() {
+    stats.dailyLog = stats.dailyLog || {};
+    const today = todayISO();
+    stats.dailyLog[today] = (stats.dailyLog[today] || 0) + 1;
+    const cutoff = addDaysISO(-90);
+    Object.keys(stats.dailyLog).forEach(d => { if (d < cutoff) delete stats.dailyLog[d]; });
   }
 
   // Every "again" rating, and a card's very first learning success
@@ -722,6 +752,7 @@
     const yestISO = localISO(yest);
     stats.streak = stats.lastStudyDate === yestISO ? stats.streak + 1 : 1;
     stats.lastStudyDate = today;
+    stats.longestStreak = Math.max(stats.longestStreak || 0, stats.streak);
     saveStats();
   }
 
@@ -860,6 +891,234 @@
 
   function starSvg() {
     return `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0l2.5 7.5L22 8l-6 4.5L18 20l-6-4-6 4 2-7.5-6-4.5 7.5-.5z"/></svg>`;
+  }
+
+  // ---------- progress ----------
+  // Every number here is derived from data the app already tracks for
+  // other reasons (card.addedDate, card.juz, masteryStage(), stats,
+  // achievements) -- nothing new to log, so this is useful immediately
+  // for existing users, not just something that starts paying off weeks
+  // from now. The one thing genuinely NOT available is a timestamped
+  // history of achievement completions (completedSurahs/completedJuz are
+  // bare number arrays) or of individual reviews, so there's no "reviews
+  // per day" or "when did I finish Juz 5" chart here -- would need a real
+  // log to be added first rather than backfilled.
+  function cumulativeGrowthPoints(allCards) {
+    const dateCounts = {};
+    allCards.forEach(c => {
+      if (c.addedDate) dateCounts[c.addedDate] = (dateCounts[c.addedDate] || 0) + 1;
+    });
+    const dates = Object.keys(dateCounts).sort();
+    if (dates.length < 2) return null; // one data point can't draw a line
+    let running = 0;
+    const points = dates.map(d => { running += dateCounts[d]; return { date: d, total: running }; });
+    return points;
+  }
+
+  // A time-scaled (not entry-scaled) SVG line+area chart, plain path data,
+  // no charting dependency. X-axis spans real calendar days from the first
+  // added verse to today, so a slow stretch actually LOOKS slow rather
+  // than being compressed away -- an entry-indexed x-axis would silently
+  // misrepresent pacing for anyone whose adding has been uneven.
+  function growthChartSvg(points) {
+    const W = 600, H = 170, PAD_L = 34, PAD_R = 12, PAD_T = 14, PAD_B = 24;
+    const firstDate = new Date(points[0].date + "T00:00:00");
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const totalDays = Math.max(1, Math.round((today - firstDate) / 86400000));
+    const maxTotal = points[points.length - 1].total;
+    const x = (d) => PAD_L + (Math.round((new Date(d + "T00:00:00") - firstDate) / 86400000) / totalDays) * (W - PAD_L - PAD_R);
+    const y = (v) => PAD_T + (1 - v / maxTotal) * (H - PAD_T - PAD_B);
+    const linePts = points.map(p => `${x(p.date).toFixed(1)},${y(p.total).toFixed(1)}`);
+    // extend the line flat to "today" so the chart doesn't look like it
+    // stops short even if the last addition was a while ago
+    linePts.push(`${(W - PAD_R).toFixed(1)},${y(maxTotal).toFixed(1)}`);
+    const linePath = "M" + linePts.join(" L");
+    const areaPath = `${linePath} L${(W - PAD_R).toFixed(1)},${(H - PAD_B).toFixed(1)} L${PAD_L},${(H - PAD_B).toFixed(1)} Z`;
+    const gridY = [0, 0.5, 1].map(f => PAD_T + f * (H - PAD_T - PAD_B));
+    return `
+      <svg class="growth-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Verses memorized over time, from ${points[0].total} to ${maxTotal}">
+        ${gridY.map(gy => `<line x1="${PAD_L}" y1="${gy.toFixed(1)}" x2="${W - PAD_R}" y2="${gy.toFixed(1)}" class="growth-grid"/>`).join("")}
+        <path d="${areaPath}" class="growth-area"/>
+        <path d="${linePath}" class="growth-line"/>
+      </svg>
+      <div class="growth-axis">
+        <span>${escapeHtml(formatShortDate(points[0].date))}</span>
+        <span>${escapeHtml(formatShortDate(today.toISOString().slice(0, 10)))}</span>
+      </div>
+    `;
+  }
+
+  // Last 28 days of review activity as a GitHub-style intensity grid.
+  // dailyLog only starts recording from whenever this feature shipped, so
+  // days before that (or before the user's first-ever review) just read as
+  // empty -- an honest "no data yet" rather than a guessed backfill.
+  function activityHeatmapHtml(dailyLog) {
+    const days = [];
+    for (let i = 27; i >= 0; i--) {
+      const date = addDaysISO(-i);
+      days.push({ date, count: (dailyLog && dailyLog[date]) || 0 });
+    }
+    const max = Math.max(1, ...days.map(d => d.count));
+    const cells = days.map(d => {
+      const level = d.count === 0 ? 0 : Math.min(4, Math.ceil((d.count / max) * 4));
+      return `<div class="heat-cell heat-level-${level}" title="${escapeHtml(formatShortDate(d.date))}: ${d.count} review${d.count === 1 ? "" : "s"}"></div>`;
+    });
+    return `<div class="heat-grid">${cells.join("")}</div>`;
+  }
+
+  function formatShortDate(iso) {
+    const d = new Date(iso + "T00:00:00");
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function masteryBarHtml(counts) {
+    const total = counts.new + counts.learning + counts.young + counts.mature;
+    if (!total) return `<p class="muraja-sub">Nothing added yet.</p>`;
+    const segs = [
+      { key: "mature", label: "Mature", n: counts.mature },
+      { key: "young", label: "Reviewing", n: counts.young },
+      { key: "learning", label: "Learning", n: counts.learning },
+      { key: "new", label: "Not started", n: counts.new },
+    ];
+    return `
+      <div class="mastery-bar">
+        ${segs.filter(s => s.n > 0).map(s => `<div class="mastery-seg mastery-${s.key}" style="flex:${s.n}" title="${s.label}: ${s.n}"></div>`).join("")}
+      </div>
+      <div class="mastery-legend">
+        ${segs.map(s => `<span class="mastery-legend-item"><i class="mastery-dot mastery-${s.key}"></i>${s.label} <b>${s.n}</b></span>`).join("")}
+      </div>
+    `;
+  }
+
+  function juzGridHtml(allCards) {
+    const cells = [];
+    for (let j = 1; j <= 30; j++) {
+      const total = juzAyahCount(j);
+      const juzCards = allCards.filter(c => c.juz === j);
+      const have = juzCards.length;
+      const matureN = juzCards.filter(c => masteryStage(c) === "mature").length;
+      const pct = total ? Math.round((have / total) * 100) : 0;
+      const complete = achievements.completedJuz.includes(j);
+      const cls = complete ? "complete" : have === 0 ? "empty" : matureN === have ? "mature" : "partial";
+      const clickable = have > 0;
+      cells.push(`
+        <div class="juz-cell juz-cell-${cls}${clickable ? " juz-cell-clickable" : ""}" ${clickable ? `data-juz="${j}"` : ""} title="Juz ${j}: ${have}/${total || "?"} verses added${matureN ? `, ${matureN} mature` : ""}${clickable ? " — tap to start a sard" : ""}">
+          <span class="juz-cell-num">${j}</span>
+          <span class="juz-cell-pct">${have ? pct + "%" : "—"}</span>
+        </div>
+      `);
+    }
+    return `<div class="juz-progress-grid">${cells.join("")}</div>`;
+  }
+
+  // Surahs the user has started but not yet finished mastering -- ranked by
+  // how close they are (mature verses / the surah's real total), so the
+  // nearest-to-complete ones surface first. Deliberately excludes anything
+  // already in achievements.completedSurahs (that's Home's job to celebrate)
+  // and anything with zero mature verses yet (not "almost" anything).
+  function inProgressSurahs(allCards) {
+    const bySurah = {};
+    allCards.forEach(c => { (bySurah[c.surah] ||= []).push(c); });
+    return Object.keys(bySurah)
+      .map(Number)
+      .filter(num => !achievements.completedSurahs.includes(num))
+      .map(num => {
+        const meta = surahList.find(s => s.number === num);
+        if (!meta) return null;
+        const list = bySurah[num];
+        const matureN = list.filter(c => masteryStage(c) === "mature").length;
+        const total = meta.numberOfAyahs;
+        return { num, meta, have: list.length, total, matureN, pct: Math.round((matureN / total) * 100) };
+      })
+      .filter(s => s && s.matureN > 0)
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 5);
+  }
+
+  async function renderProgress() {
+    cancelAudio(); resetActiveSessions();
+    await ensureSurahList();
+    const allCards = Object.values(cards);
+    const counts = { new: 0, learning: 0, young: 0, mature: 0 };
+    allCards.forEach(c => { counts[masteryStage(c)]++; });
+    const growthPoints = cumulativeGrowthPoints(allCards);
+    const daysActive = allCards.length
+      ? Math.max(1, Math.round((new Date() - new Date(allCards.reduce((min, c) => c.addedDate && c.addedDate < min ? c.addedDate : min, allCards[0].addedDate || "9999-99-99") + "T00:00:00")) / 86400000) + 1)
+      : 0;
+    const almostThere = inProgressSurahs(allCards);
+
+    screenEl.innerHTML = `
+      <div class="container">
+        <div class="hero">
+          <div class="hero-eyebrow">Sīrah</div>
+          <h1>Your Progress</h1>
+          <p>The whole picture — how far you've come, not just what's due today.</p>
+        </div>
+        <div class="stat-row" style="grid-template-columns:repeat(4,1fr)">
+          <div class="stat-box"><b>${stats.streak}</b><span>day streak${stats.longestStreak > stats.streak ? `<br><i class="stat-best">best ${stats.longestStreak}</i>` : ""}</span></div>
+          <div class="stat-box"><b>${allCards.length}</b><span>total verses</span></div>
+          <div class="stat-box"><b>${counts.mature}</b><span>mature</span></div>
+          <div class="stat-box"><b>${stats.totalReviews}</b><span>reviews done</span></div>
+        </div>
+        ${allCards.length === 0 ? `
+          <div class="empty-state">
+            <div class="glyph">﴾ ﴿</div>
+            <p>Nothing to show yet — add verses from the Library and your progress will build up here.</p>
+          </div>
+        ` : `
+          ${almostThere.length ? `
+            <div class="star-divider">${starSvg()}</div>
+            <div class="progress-section">
+              <div class="muraja-heading">Almost There</div>
+              <p class="muraja-sub">Surahs you've already started — closest to fully mastered first.</p>
+              <div class="muraja-list">
+                ${almostThere.map(s => `
+                  <button class="muraja-row" data-surah="${s.num}">
+                    <div class="muraja-row-info">
+                      <div class="en">${escapeHtml(s.meta.englishName)}</div>
+                      <div class="sub">${s.matureN}/${s.total} mature · ${s.pct}% there</div>
+                    </div>
+                    <div class="muraja-cta">Start Sard →</div>
+                  </button>
+                `).join("")}
+              </div>
+            </div>
+          ` : ""}
+          ${growthPoints ? `
+            <div class="star-divider">${starSvg()}</div>
+            <div class="progress-section">
+              <div class="muraja-heading">Growth Over Time</div>
+              <p class="muraja-sub">${allCards.length} verses added across ${daysActive} day${daysActive === 1 ? "" : "s"}.</p>
+              ${growthChartSvg(growthPoints)}
+            </div>
+          ` : ""}
+          <div class="star-divider">${starSvg()}</div>
+          <div class="progress-section">
+            <div class="muraja-heading">Recent Activity</div>
+            <p class="muraja-sub">Reviews over the last 28 days.</p>
+            ${activityHeatmapHtml(stats.dailyLog)}
+          </div>
+          <div class="star-divider">${starSvg()}</div>
+          <div class="progress-section">
+            <div class="muraja-heading">Mastery Breakdown</div>
+            <p class="muraja-sub">Where every verse you've added currently stands.</p>
+            ${masteryBarHtml(counts)}
+          </div>
+          <div class="star-divider">${starSvg()}</div>
+          <div class="progress-section">
+            <div class="muraja-heading">Progress by Juz</div>
+            <p class="muraja-sub">Each cell is one of the 30 traditional divisions — filled in as you add and master its verses.</p>
+            ${juzGridHtml(allCards)}
+          </div>
+        `}
+      </div>
+    `;
+    document.querySelectorAll("#screen .muraja-row").forEach(btn => {
+      btn.addEventListener("click", () => startSard(Number(btn.dataset.surah)));
+    });
+    document.querySelectorAll("#screen .juz-cell-clickable").forEach(cell => {
+      cell.addEventListener("click", () => startJuzSard(Number(cell.dataset.juz)));
+    });
   }
 
   // ---------- library ----------
@@ -3168,6 +3427,7 @@
     else if (name === "library") renderLibrary();
     else if (name === "mushaf") renderMushaf();
     else if (name === "vocab") renderVocabHome();
+    else if (name === "progress") renderProgress();
   }
 
   function renderReciterSelect() {
@@ -3599,18 +3859,34 @@
     });
     return merged;
   }
+  // Per-day counts merge by taking the higher count on each date rather
+  // than summing -- summing would double-count every day both devices
+  // already agree on every time a sync round-trips (same reasoning as
+  // totalReviews' Math.max just above).
+  function mergeDailyLog(local, remote) {
+    const merged = Object.assign({}, local || {});
+    Object.keys(remote || {}).forEach(date => {
+      merged[date] = Math.max(merged[date] || 0, remote[date]);
+    });
+    return merged;
+  }
   function applyProgressPayload(remote) {
     if (!remote) return;
     cards = mergeCards(cards, remote.cards || {});
     vocabCards = mergeCards(vocabCards, remote.vocabCards || {});
     muraja = mergeMuraja(muraja, remote.muraja || {});
     if (remote.stats) {
+      const mergedDailyLog = mergeDailyLog(stats.dailyLog, remote.stats.dailyLog);
       if ((remote.stats.lastStudyDate || "") >= (stats.lastStudyDate || "")) {
         stats = Object.assign({}, stats, remote.stats, {
           totalReviews: Math.max(stats.totalReviews || 0, remote.stats.totalReviews || 0),
+          longestStreak: Math.max(stats.longestStreak || 0, remote.stats.longestStreak || 0),
+          dailyLog: mergedDailyLog,
         });
       } else {
         stats.totalReviews = Math.max(stats.totalReviews || 0, remote.stats.totalReviews || 0);
+        stats.longestStreak = Math.max(stats.longestStreak || 0, remote.stats.longestStreak || 0);
+        stats.dailyLog = mergedDailyLog;
       }
     }
     if (remote.settings && STUDY_MODES[remote.settings.mode]) settings = Object.assign({}, settings, remote.settings);
