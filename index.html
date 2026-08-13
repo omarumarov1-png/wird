@@ -109,16 +109,19 @@
 <script src="firebase-config.js?v=20260827"></script>
 <script src="auth.js?v=20260827"></script>
 <script>
-  // Offline support disabled for now -- unregister any previously-installed
-  // service worker and clear its caches instead of registering a new one.
+  // Offline support disabled for now. Only re-register when an old worker
+  // is already installed -- that forces an IMMEDIATE update check against
+  // sw.js (which is now a self-destructing kill switch: it wipes every
+  // cache and unregisters itself on activate) instead of waiting on the
+  // browser's slow ~24h automatic check, which is what silently trapped
+  // devices behind a stale cached shell before this fix. Once clean,
+  // getRegistrations() comes back empty and this stops registering
+  // anything at all.
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.getRegistrations()
-        .then(regs => regs.forEach(reg => reg.unregister()))
-        .catch(() => {});
-      if (window.caches) {
-        caches.keys().then(keys => keys.forEach(k => caches.delete(k))).catch(() => {});
-      }
+      navigator.serviceWorker.getRegistrations().then((regs) => {
+        if (regs.length > 0) navigator.serviceWorker.register("sw.js").catch(() => {});
+      }).catch(() => {});
     });
   }
 </script>

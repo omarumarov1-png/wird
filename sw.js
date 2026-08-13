@@ -1,150 +1,25 @@
-// sw.js — Wird service worker.
+// sw.js — Wird service worker: KILL SWITCH.
 //
-// Cache-first for the app shell (so the installed PWA opens with zero
-// network), plus opportunistic runtime caching for the Qur'an text/word
-// APIs, recitation + vocab audio, and Google Fonts -- so a surah or word
-// the user has already studied while online keeps working (text, audio,
-// and all) once they're not. Deliberately never touches Firebase's own
-// Auth/Firestore traffic -- auth.js already has its own offline handling
-// for that, and caching an XHR here could serve stale auth state.
+// Offline support is disabled for now. Every previous version of this
+// file cached the app shell cache-first, including full page navigations
+// -- which meant a device with the old worker already installed could
+// never see ANY new deploy, no matter what index.html said, because the
+// old worker served its own stale cached index.html instead of ever
+// fetching the new one. Editing index.html alone can't reach those
+// devices; only a changed sw.js can, since the browser checks sw.js for
+// byte-level changes independently of the page's own JS.
 //
-// CACHE_VERSION is bumped by hand alongside index.html's own `?v=` asset
-// version on every deploy -- that's what forces every open tab to fetch a
-// fresh shell and drop the old cache on its next activate, the same
-// invalidation switch the rest of the app already uses.
-const CACHE_VERSION = "20260827";
-const SHELL_CACHE = `wird-shell-v${CACHE_VERSION}`;
-const RUNTIME_CACHE = `wird-runtime-v${CACHE_VERSION}`;
-
-const SHELL_URLS = [
-  "./",
-  "./index.html",
-  `./style.css?v=${CACHE_VERSION}`,
-  `./app.js?v=${CACHE_VERSION}`,
-  `./firebase-config.js?v=${CACHE_VERSION}`,
-  `./auth.js?v=${CACHE_VERSION}`,
-  `./manifest.json?v=${CACHE_VERSION}`,
-  `./icons/apple-touch-icon-180.png?v=${CACHE_VERSION}`,
-  `./icons/favicon-32.png?v=${CACHE_VERSION}`,
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-  "./icons/icon-maskable-192.png",
-  "./icons/icon-maskable-512.png",
-  "./data/vocab-bank.json",
-];
-
-// Recitation + word audio never changes once published -- cache-first,
-// no background refresh needed.
-const IMMUTABLE_AUDIO_HOSTS = ["everyayah.com", "audio.qurancdn.com"];
-// Ayah text/translation/word-by-word data: cache-first for instant offline
-// reads, but always kick off a background refetch too in case anything
-// upstream ever gets corrected.
-const REVALIDATE_HOSTS = ["api.alquran.cloud", "api.quran.com"];
-const FONT_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
-
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(SHELL_CACHE)
-      .then((cache) => cache.addAll(SHELL_URLS))
-      .then(() => self.skipWaiting())
-  );
-});
+// This version does the opposite of caching: on activate, it wipes every
+// cache this origin owns, unregisters itself, and forces any open tab to
+// reload so it immediately goes back to plain network requests.
+self.addEventListener("install", () => self.skipWaiting());
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys()
-      .then((keys) => Promise.all(
-        keys.filter((k) => k !== SHELL_CACHE && k !== RUNTIME_CACHE).map((k) => caches.delete(k))
-      ))
-      .then(() => self.clients.claim())
-  );
-});
-
-async function shellCacheFirst(req) {
-  const cache = await caches.open(SHELL_CACHE);
-  const cached = await cache.match(req);
-  if (cached) return cached;
-  try {
-    const res = await fetch(req);
-    if (res.ok) cache.put(req, res.clone());
-    return res;
-  } catch (e) {
-    return cached || Response.error();
-  }
-}
-
-async function cacheFirstNoRevalidate(req) {
-  const cache = await caches.open(RUNTIME_CACHE);
-  const cached = await cache.match(req);
-  if (cached) return cached;
-  try {
-    // Explicit CORS mode, not the original request's own default no-cors
-    // (which is what a plain <audio src>/<link> triggers) -- every host
-    // this is used for (everyayah.com, audio.qurancdn.com, Google Fonts)
-    // sends Access-Control-Allow-Origin: * (verified live), so this gets
-    // a REAL, inspectable response instead of an opaque one.
-    //
-    // This matters a lot: in no-cors mode, fetch() never rejects for an
-    // HTTP-level error -- a URL that 404s or 500s still resolves as an
-    // opaque response with no visible status. The previous version
-    // treated "opaque" itself as good enough to cache, which meant a
-    // single transient server error could get cached as if it were real
-    // audio, PERMANENTLY (cache-first, no revalidation ever revisits it)
-    // -- completely immune to any client-side retry logic, since a retry
-    // just re-triggers this same handler and hits the same poisoned
-    // cache entry instead of ever reaching the network again. A sanity
-    // floor on size also guards against a 200 response that's real but
-    // truncated/empty.
-    const res = await fetch(req.url, { mode: "cors" });
-    const len = Number(res.headers.get("content-length") || "0");
-    if (res.ok && (len === 0 || len > 512)) cache.put(req, res.clone());
-    return res;
-  } catch (e) {
-    return Response.error();
-  }
-}
-
-async function staleWhileRevalidate(req) {
-  const cache = await caches.open(RUNTIME_CACHE);
-  const cached = await cache.match(req);
-  const network = fetch(req).then((res) => {
-    if (res.ok) cache.put(req, res.clone());
-    return res;
-  }).catch(() => null);
-  if (cached) return cached; // network promise still runs in the background to refresh the cache
-  const res = await network;
-  return res || Response.error();
-}
-
-self.addEventListener("fetch", (event) => {
-  const req = event.request;
-  if (req.method !== "GET") return; // never intercept writes (Firestore, etc.)
-  const url = new URL(req.url);
-
-  // Opening/reloading the app itself: always answer from the precached
-  // shell first, so this works with the device genuinely offline.
-  if (req.mode === "navigate") {
-    event.respondWith(shellCacheFirst(new Request("./index.html")));
-    return;
-  }
-
-  if (url.origin === self.location.origin) {
-    event.respondWith(shellCacheFirst(req));
-    return;
-  }
-
-  // Firebase's own traffic is never intercepted -- auth.js has its own,
-  // more careful offline handling for it.
-  if (url.hostname.endsWith("firebaseio.com") || url.hostname.endsWith("firestore.googleapis.com")) return;
-  if (url.hostname === "www.gstatic.com" && url.pathname.startsWith("/firebasejs/")) return;
-
-  if (IMMUTABLE_AUDIO_HOSTS.includes(url.hostname) || FONT_HOSTS.includes(url.hostname)) {
-    event.respondWith(cacheFirstNoRevalidate(req));
-    return;
-  }
-  if (REVALIDATE_HOSTS.includes(url.hostname)) {
-    event.respondWith(staleWhileRevalidate(req));
-    return;
-  }
-  // Any other third-party origin: pass through untouched.
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    await self.registration.unregister();
+    const clientsList = await self.clients.matchAll({ type: "window" });
+    clientsList.forEach((client) => client.navigate(client.url));
+  })());
 });
