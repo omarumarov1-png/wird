@@ -109,9 +109,16 @@
 <script src="firebase-config.js?v=20260827"></script>
 <script src="auth.js?v=20260827"></script>
 <script>
+  // Offline support disabled for now -- unregister any previously-installed
+  // service worker and clear its caches instead of registering a new one.
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch(() => { /* offline-install support just won't be available this session */ });
+      navigator.serviceWorker.getRegistrations()
+        .then(regs => regs.forEach(reg => reg.unregister()))
+        .catch(() => {});
+      if (window.caches) {
+        caches.keys().then(keys => keys.forEach(k => caches.delete(k))).catch(() => {});
+      }
     });
   }
 </script>

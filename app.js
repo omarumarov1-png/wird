@@ -4283,7 +4283,8 @@
     document.getElementById("themeToggleBtn").addEventListener("click", toggleTheme);
     document.getElementById("soundToggleBtn").addEventListener("click", toggleSound);
     updateSoundToggleIcon();
-    wireOfflineIndicator();
+    // Disabled for now -- offline support is off, no need to show the pill.
+    // wireOfflineIndicator();
     wirePullToRefresh();
     renderReciterSelect();
     wireMediaSessionActions();
