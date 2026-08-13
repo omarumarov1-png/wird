@@ -486,6 +486,11 @@ body {
 }
 .story-arabic-box .card-arabic { font-size: 2.35rem; line-height: 2.35; color: #201a0c; }
 .story-arabic-box .card-arabic .hidden-word { color: var(--gold); }
+/* .story-arabic-box is always a light card regardless of theme (#fffdf8
+   above), but .word-tap:hover/:active uses the theme-aware --gold-soft,
+   which is a near-black brown in dark theme -- same class of bug as the
+   tooltip fix, just a different element. Hardcode the light value here. */
+.story-arabic-box .word-tap:hover, .story-arabic-box .word-tap:active { background: #f3e6c4; }
 .story-arabic-box .card-arabic.tap-to-check { cursor: pointer; }
 .story-arabic-box .card-arabic.tap-to-check .hidden-word { border-bottom: 2px dotted var(--gold); }
 .story-swipe-zone .card-translation { color: rgba(255,255,255,0.92); font-size: 0.95rem; }
