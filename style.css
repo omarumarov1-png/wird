@@ -524,10 +524,23 @@ body {
    the risk entirely, and reads as calmer during continuous playback. */
 .word-tap.word-playing { background: var(--emerald-soft); box-shadow: inset 0 -3px 0 var(--emerald); transition: background 0.08s ease; }
 .word-tooltip {
+  /* Was background:var(--text)/color:var(--bg) -- an inverted scheme that
+     adapts per theme (fine against theme-aware surfaces) but was a solid
+     near-black fill specifically in light theme, and ALWAYS wrong over
+     the Arabic verse cards specifically, which stay hardcoded white
+     (.story-arabic-box etc.) regardless of app theme -- so a dark-theme
+     version of the old inverted tooltip would reproduce the identical
+     "dark block on a white card" bug there. Hardcoded light rather than
+     theme-variable for exactly that reason: this tooltip almost always
+     sits over one of those always-white cards, so it stays always-light
+     too, in both themes, rather than following --surface into dark mode
+     and clashing with a card that never actually goes dark. */
   position: absolute;
   z-index: 100;
-  background: var(--text);
-  color: var(--bg);
+  background: #fffdf8;
+  color: #241f16;
+  border: 1.5px solid var(--emerald);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.16);
   padding: 7px 12px;
   border-radius: 9px;
   font-size: 0.78rem;
@@ -538,7 +551,6 @@ body {
   transform: translateY(4px);
   transition: opacity 0.12s ease, transform 0.12s ease;
   max-width: 200px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
 }
 .word-tooltip.visible { opacity: 1; transform: translateY(0); }
 .word-tooltip .wt-tr { display: block; font-style: italic; font-family: var(--font-display); font-weight: 500; }
