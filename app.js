@@ -3779,14 +3779,19 @@
 
   function renderReciterSelect() {
     const sel = document.getElementById("reciterSelect");
-    sel.innerHTML = Object.entries(RECITERS).map(([id, r]) => {
-      // quran.com only publishes word-by-word timing for Alafasy -- surface
-      // that in the label itself instead of silently doing nothing, since
-      // the highlight feature otherwise looks broken with any other pick.
-      const label = id === "alafasy" ? r.name : `${r.name} (no word highlight)`;
-      return `<option value="${id}" ${id === currentReciter ? "selected" : ""}>${escapeHtml(label)}</option>`;
-    }).join("");
-    sel.addEventListener("change", () => setReciter(sel.value));
+    // quran.com only publishes word-by-word timing for Alafasy -- surface
+    // that as a tooltip (not inline option text, which overflowed the
+    // pill on narrow phones) so the highlight feature doesn't just look
+    // silently broken with any other pick.
+    const noHighlightNote = "No word-by-word highlight available for this reciter";
+    sel.innerHTML = Object.entries(RECITERS).map(([id, r]) =>
+      `<option value="${id}" ${id === currentReciter ? "selected" : ""} ${id === "alafasy" ? "" : `title="${escapeHtml(noHighlightNote)}"`}>${escapeHtml(r.name)}</option>`
+    ).join("");
+    sel.title = currentReciter === "alafasy" ? "" : noHighlightNote;
+    sel.addEventListener("change", () => {
+      setReciter(sel.value);
+      sel.title = sel.value === "alafasy" ? "" : noHighlightNote;
+    });
   }
 
   // ---------- Voice Mirror: record yourself, A/B against the reciter ----------

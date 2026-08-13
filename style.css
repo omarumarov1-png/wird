@@ -126,7 +126,7 @@ body {
 
 /* ---------- topbar ---------- */
 .topbar {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; flex-direction: column; gap: 10px;
   padding: 14px 22px;
   /* installed-on-iPhone only: the status-bar-style meta tag lets our own
      background show through under the notch/Dynamic Island, so the real
@@ -137,21 +137,38 @@ body {
   background: color-mix(in srgb, var(--surface) 90%, transparent);
   backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 30;
-  flex-wrap: wrap;
 }
+/* Two explicit rows (brand+controls, then the tab strip) instead of one
+   flat flex-wrap row -- the old single-row layout had no defined behavior
+   once brand + 5 tabs + reciter select + 4 icon buttons stopped fitting on
+   one line, which forced the whole page into horizontal scroll on an
+   actual phone (nav labels cut off, the reciter select's own text
+   truncated). This can never overflow at any width: topbar-controls wraps
+   on its own, and topnav gets a dedicated horizontally-scrollable strip. */
+.topbar-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.topbar-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .brand { display: flex; align-items: center; gap: 9px; background: none; border: none; cursor: pointer; padding: 0; }
 .brand-mark { font-size: 1.1rem; color: var(--gold); }
 .brand-name { font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; color: var(--text); font-style: italic; }
-.topnav { display: flex; gap: 4px; background: var(--surface-2); border-radius: 99px; padding: 4px; }
+.topnav {
+  display: flex; gap: 4px; background: var(--surface-2); border-radius: 99px; padding: 4px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  /* Soft fade at both edges so a partially-hidden tab reads as
+     "swipeable" rather than looking abruptly cut off -- harmless no-op
+     when every tab already fits, since there's nothing there to fade. */
+  mask-image: linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);
+}
+.topnav::-webkit-scrollbar { display: none; }
 .nav-btn {
-  border: none; background: none; padding: 8px 16px; border-radius: 99px;
+  border: none; background: none; padding: 8px 16px; border-radius: 99px; white-space: nowrap;
   font-family: var(--font-ui); font-size: 0.85rem; font-weight: 500; color: var(--text-muted); cursor: pointer;
 }
 .nav-btn.active { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
 .reciter-select {
   border: 1.5px solid var(--border); background: var(--surface); color: var(--text);
   border-radius: 99px; padding: 7px 14px; font-family: var(--font-ui); font-size: 0.8rem;
-  font-weight: 500; cursor: pointer; max-width: 180px;
+  font-weight: 500; cursor: pointer; max-width: 140px; text-overflow: ellipsis;
 }
 .offline-pill {
   display: flex; align-items: center; gap: 4px; font-size: 0.72rem; font-weight: 700;
