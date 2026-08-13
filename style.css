@@ -56,7 +56,17 @@
   --bad: #b0473f; --bad-soft: #fbe8e5; color-scheme: light;
 }
 
-* { box-sizing: border-box; }
+/* Mobile Safari/Chrome flash a dark, semi-transparent overlay on ANY
+   tappable element by default (-webkit-tap-highlight-color) unless this is
+   set -- never was here. On a real phone this fires on every single word
+   tap throughout the app, and layered over gold-colored text/dash
+   placeholders it reads as a solid dark blotch -- exactly the "dark brown
+   box" symptom, and specific to real touch devices, which is why it never
+   showed up in desktop-based testing. The app already has its own
+   deliberate :hover/:active feedback (.word-tap, buttons, etc.), so this
+   native flash was always redundant on top of that, never the only
+   feedback. */
+* { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
 html, body { height: 100%; }
 .hidden { display: none !important; }
 

@@ -2452,11 +2452,30 @@
   function renderFadeRecall(host, card) {
     const stage = masteryStage(card);
     const fadeLevel = stage === "learning" ? 0.15 : stage === "young" ? 0.45 : 0.75;
-    const words = card.text.split(" ");
-    const faded = words.map(w => Math.random() < fadeLevel
-      ? `<span class="hidden-word">${"ـ".repeat(Math.min(4, Math.max(2, w.length)))}</span>`
-      : escapeHtml(w)
-    ).join(" ");
+    // Real per-word spans (same data-pos scheme as arabicHtmlRaw), not
+    // plain text -- this used to just split card.text on spaces into
+    // dashes or bare escaped words, with no .word-tap markup on ANY of
+    // them (hidden or shown). That meant playAudioWithHighlight() had
+    // nothing to find a match against, so this mode never had per-word
+    // playback highlighting at all, structurally, regardless of what the
+    // play button called. Falls back to the old plain-text behavior only
+    // if word-by-word data genuinely hasn't loaded yet.
+    const bySurah = wordsCache[String(card.surah)];
+    const wordData = bySurah && bySurah[card.ayah];
+    let faded;
+    if (wordData && wordData.length) {
+      faded = wordData.map((w, i) => {
+        const hide = Math.random() < fadeLevel;
+        const dashes = "ـ".repeat(Math.min(4, Math.max(2, w.ar.length)));
+        return `<span class="word-tap${hide ? " hidden-word" : ""}" data-pos="${i + 1}" data-tr="${escapeHtml(w.tr)}" data-en="${escapeHtml(w.en)}"${hide ? ` data-real="${escapeHtml(w.ar)}"` : ""}>${hide ? dashes : escapeHtml(w.ar)}</span>`;
+      }).join(" ");
+    } else {
+      const words = card.text.split(" ");
+      faded = words.map(w => Math.random() < fadeLevel
+        ? `<span class="hidden-word">${"ـ".repeat(Math.min(4, Math.max(2, w.length)))}</span>`
+        : escapeHtml(w)
+      ).join(" ");
+    }
     let settled = false;
     host.innerHTML = `
       <div class="review-stage story-mode">
@@ -2485,12 +2504,30 @@
       clearPlayError(playBtn);
       playBtn.classList.add("playing");
       const onEnd = () => playBtn.classList.remove("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(playBtn); });
+      const onError = () => { onEnd(); showPlayError(playBtn); };
+      const container = document.getElementById("fadeArabic");
+      if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd, onError);
+      else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, onError);
     });
     document.getElementById("fadeArabic").addEventListener("click", (e) => {
       e.currentTarget.classList.remove("tap-to-check");
-      e.currentTarget.innerHTML = arabicHtmlFor(card);
-      wireWordTooltips(e.currentTarget);
+      // Un-mask in place (drop .hidden-word, restore the real text) rather
+      // than replacing the whole container's innerHTML -- that used to
+      // wipe out whatever .word-playing highlight was already mid-flight
+      // from a tap that landed while audio was still playing.
+      const hiddenSpans = e.currentTarget.querySelectorAll(".hidden-word");
+      if (hiddenSpans.length) {
+        hiddenSpans.forEach(el => {
+          if (el.dataset.real) el.textContent = el.dataset.real;
+          el.classList.remove("hidden-word");
+        });
+      } else if (!e.currentTarget.querySelector(".word-tap")) {
+        // Word data wasn't loaded when this card first rendered (the
+        // plain-text fallback above) -- nothing here is real markup to
+        // patch, so fall back to the old full replace.
+        e.currentTarget.innerHTML = arabicHtmlFor(card);
+        wireWordTooltips(e.currentTarget);
+      }
       document.getElementById("fadeTranslation").textContent = card.translation;
       playAudio(audioUrlFor(card.surah, card.ayah), 1);
     }, { once: true });
@@ -2587,6 +2624,7 @@
   }
   function renderMutashabih(host, card, match) {
     const options = shuffled([card, match]);
+    const cardIdx = options.indexOf(card);
     host.innerHTML = `
       <div class="review-stage">
         <div class="mode-kicker">Look-Alike Challenge</div>
@@ -2609,7 +2647,13 @@
       clearPlayError(btn);
       btn.classList.add("playing");
       const onEnd = () => btn.classList.remove("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(btn); });
+      const onError = () => { onEnd(); showPlayError(btn); };
+      // Highlight only the card matching `card` -- the OTHER shuffled slot
+      // is a different verse entirely, whose words would never line up
+      // with this audio's timing data.
+      const container = document.querySelectorAll(".mutashabih-card .arabic")[cardIdx];
+      if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd, onError);
+      else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, onError);
     });
     let answered = false;
     document.querySelectorAll(".mutashabih-card").forEach(el => {
@@ -2646,7 +2690,7 @@
         <div class="mode-kicker">Page Position Sense</div>
         <div class="mode-hint">Which mushaf page is this verse on?</div>
         <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-        <div class="card-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
+        <div class="card-arabic-box"><div class="card-arabic" id="pageSenseArabic">${arabicHtmlFor(card)}</div></div>
         <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
         <div class="page-picker" id="pagePicker">
           ${choices.map(p => `<button class="page-cell" data-p="${p}">${p}</button>`).join("")}
@@ -2661,7 +2705,10 @@
       clearPlayError(btn);
       btn.classList.add("playing");
       const onEnd = () => btn.classList.remove("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(btn); });
+      const onError = () => { onEnd(); showPlayError(btn); };
+      const container = document.getElementById("pageSenseArabic");
+      if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd, onError);
+      else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, onError);
     });
     let answered = false;
     document.querySelectorAll(".page-cell").forEach(btn => {
@@ -2887,8 +2934,8 @@
     const options = shuffled([correctWord, ...distractors]);
 
     const withBlank = wordData.map((w, i) => i === blankIdx
-      ? `<span class="hidden-word">____</span>`
-      : `<span class="word-tap" data-tr="${escapeHtml(w.tr)}" data-en="${escapeHtml(w.en)}">${escapeHtml(w.ar)}</span>`
+      ? `<span class="word-tap hidden-word" data-pos="${i + 1}" data-tr="${escapeHtml(w.tr)}" data-en="${escapeHtml(w.en)}">____</span>`
+      : `<span class="word-tap" data-pos="${i + 1}" data-tr="${escapeHtml(w.tr)}" data-en="${escapeHtml(w.en)}">${escapeHtml(w.ar)}</span>`
     ).join(" ");
 
     host.innerHTML = `
@@ -2896,7 +2943,7 @@
         <div class="mode-kicker">Missing Word</div>
         <div class="mode-hint">Which word belongs in the gap?</div>
         <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-        <div class="card-arabic-box"><div class="card-arabic">${withBlank}</div></div>
+        <div class="card-arabic-box"><div class="card-arabic" id="clozeArabic">${withBlank}</div></div>
         <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
         <div class="options" id="clozeOptions">
           ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
@@ -2911,7 +2958,10 @@
       clearPlayError(btn);
       btn.classList.add("playing");
       const onEnd = () => btn.classList.remove("playing");
-      playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, () => { onEnd(); showPlayError(btn); });
+      const onError = () => { onEnd(); showPlayError(btn); };
+      const container = document.getElementById("clozeArabic");
+      if (container) playAudioWithHighlight(card.surah, card.ayah, container, onEnd, onError);
+      else playAudio(audioUrlFor(card.surah, card.ayah), 1, onEnd, onError);
     });
     let answered = false;
     document.querySelectorAll("#clozeOptions .option").forEach(btn => {
