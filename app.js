@@ -3779,9 +3779,13 @@
 
   function renderReciterSelect() {
     const sel = document.getElementById("reciterSelect");
-    sel.innerHTML = Object.entries(RECITERS).map(([id, r]) =>
-      `<option value="${id}" ${id === currentReciter ? "selected" : ""}>${escapeHtml(r.name)}</option>`
-    ).join("");
+    sel.innerHTML = Object.entries(RECITERS).map(([id, r]) => {
+      // quran.com only publishes word-by-word timing for Alafasy -- surface
+      // that in the label itself instead of silently doing nothing, since
+      // the highlight feature otherwise looks broken with any other pick.
+      const label = id === "alafasy" ? r.name : `${r.name} (no word highlight)`;
+      return `<option value="${id}" ${id === currentReciter ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("");
     sel.addEventListener("change", () => setReciter(sel.value));
   }
 
