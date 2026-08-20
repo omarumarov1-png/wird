@@ -20,6 +20,29 @@
   };
   const RECITER_KEY = "wird-reciter-v1";
 
+  // A small shared icon set (currentColor throughout, so each one just
+  // inherits whatever color its container already sets) used in place of
+  // emoji/glyph characters across the app -- those render inconsistently
+  // across platforms and fonts, these don't.
+  const ICON_PLAY = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M7 4.5v15l13-7.5z" fill="currentColor"/></svg>`;
+  const ICON_PAUSE = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="6" y="4.5" width="4.5" height="15" rx="1" fill="currentColor"/><rect x="13.5" y="4.5" width="4.5" height="15" rx="1" fill="currentColor"/></svg>`;
+  const ICON_SUN = `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8L6 18M18 6l1.8-1.8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  const ICON_MOON = `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+  const ICON_SPEAKER_ON = `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M16.5 9a3.5 3.5 0 010 6M19 6.5a7 7 0 010 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  const ICON_SPEAKER_MUTED = `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  const ICON_CHECK = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12.5l4.3 4.3L19 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const ICON_SEARCH = `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-4.5-4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  const ICON_TRASH = `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M5 7h14M9 7V5a1 1 0 011-1h4a1 1 0 011 1v2m-8 0v12a1 1 0 001 1h6a1 1 0 001-1V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const ICON_DOWNLOAD = `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 3.5v11m0 0l-4.5-4.5M12 14.5L16.5 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 17.5v2a1 1 0 001 1h12a1 1 0 001-1v-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+  const ICON_MIC = `<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21m-3.5 0h7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  const ICON_PREV = `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const ICON_NEXT = `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const ICON_RETRY = `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M4 12a8 8 0 0114-5.3M20 12a8 8 0 01-14 5.3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M18 4v3.5h-3.5M6 20v-3.5h3.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const ICON_ACCOUNT = `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 20c1.4-3.6 4.4-5.5 7.5-5.5s6.1 1.9 7.5 5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  const ICON_SETTINGS = `<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5v2.3m0 12.4v2.3M20.5 12h-2.3M5.8 12H3.5M17.7 6.3l-1.6 1.6M7.9 16.1l-1.6 1.6M17.7 17.7l-1.6-1.6M7.9 7.9L6.3 6.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
+  const ICON_CLOUD = `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M7 18a4 4 0 01-.5-7.97A5 5 0 0116.9 9.1 3.5 3.5 0 0116.5 16H7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+  const ICON_BOLT = `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" fill="currentColor"/></svg>`;
+
   // ---------- theme ----------
   // CSS already carries :root[data-theme="dark"/"light"] overrides (used by
   // the system prefers-color-scheme fallback) -- this just adds an explicit
@@ -38,12 +61,12 @@
   }
   function updateThemeToggleIcon() {
     const btn = document.getElementById("themeToggleBtn");
-    if (btn) btn.textContent = currentEffectiveTheme() === "dark" ? "☀" : "☾";
+    if (btn) btn.innerHTML = currentEffectiveTheme() === "dark" ? ICON_SUN : ICON_MOON;
   }
   function toggleTheme() {
     const next = currentEffectiveTheme() === "dark" ? "light" : "dark";
     document.documentElement.setAttribute("data-theme", next);
-    localStorage.setItem(THEME_KEY, next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* private mode or quota exceeded -- theme still applies for this session */ }
     updateThemeToggleIcon();
   }
   initTheme();
@@ -119,11 +142,11 @@
   let audioCtx = null;
   function updateSoundToggleIcon() {
     const btn = document.getElementById("soundToggleBtn");
-    if (btn) btn.textContent = soundEnabled ? "🔊" : "🔇";
+    if (btn) btn.innerHTML = soundEnabled ? ICON_SPEAKER_ON : ICON_SPEAKER_MUTED;
   }
   function toggleSound() {
     soundEnabled = !soundEnabled;
-    localStorage.setItem(SOUND_KEY, soundEnabled ? "on" : "off");
+    try { localStorage.setItem(SOUND_KEY, soundEnabled ? "on" : "off"); } catch (e) { /* private mode or quota exceeded -- setting still applies for this session */ }
     updateSoundToggleIcon();
   }
   function getAudioCtx() {
@@ -265,14 +288,17 @@
   let currentReciter = localStorage.getItem(RECITER_KEY) || "alafasy";
 
   function pad3(n) { return String(n).padStart(3, "0"); }
-  function audioUrlFor(surah, ayah) {
-    const folder = (RECITERS[currentReciter] || RECITERS.alafasy).folder;
+  function audioUrlForReciter(reciterId, surah, ayah) {
+    const folder = (RECITERS[reciterId] || RECITERS.alafasy).folder;
     return `https://everyayah.com/data/${folder}/${pad3(surah)}${pad3(ayah)}.mp3`;
+  }
+  function audioUrlFor(surah, ayah) {
+    return audioUrlForReciter(currentReciter, surah, ayah);
   }
   function setReciter(id) {
     if (!RECITERS[id]) return;
     currentReciter = id;
-    localStorage.setItem(RECITER_KEY, id);
+    try { localStorage.setItem(RECITER_KEY, id); } catch (e) { /* private mode or quota exceeded -- setting still applies for this session */ }
     pushToCloud();
   }
 
@@ -288,7 +314,19 @@
     try { const raw = localStorage.getItem(key); if (raw) return JSON.parse(raw); } catch (e) {}
     return fallback;
   }
-  function save(key, val) { localStorage.setItem(key, JSON.stringify(val)); }
+  // Unguarded localStorage.setItem throws in two real, non-rare situations:
+  // Safari private browsing (throws on EVERY setItem call, by design) and a
+  // genuinely full quota (QuotaExceededError -- more likely now that the
+  // Downloads screen can put real pressure on device storage). Every
+  // caller here (saveCards/saveSettings/saveStats/etc.) runs inline in
+  // click handlers with no try/catch of their own, so an uncaught throw
+  // here would silently abort whatever the user just did partway through
+  // -- swallowing it, same as load() already does above, means a save
+  // that can't persist just doesn't persist instead of breaking the
+  // interaction that triggered it.
+  function save(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* private mode or quota exceeded -- nothing more to do here */ }
+  }
   function loadAll() {
     cards = load(CARDS_KEY, {});
     settings = Object.assign({ mode: DEFAULT_STUDY_MODE }, load(SETTINGS_KEY, {}));
@@ -1017,7 +1055,7 @@
             <button class="secondary-btn" id="goLibraryBtn">Open Library</button>
           ` : `
             <div class="empty-state">
-              <div class="glyph">✓</div>
+              <div class="glyph"><svg viewBox="0 0 24 24" width="38" height="38" aria-hidden="true"><path d="M4 12.5l6 6L20 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
               <p>Nothing due right now. Come back tomorrow, or add more verses to memorize from the Library.</p>
             </div>
             <button class="secondary-btn" id="goLibraryBtn">Open Library</button>
@@ -1390,7 +1428,7 @@
           <p>Browse the Qur'an and add verses to your memorization set.</p>
         </div>
         <div class="lib-search-wrap">
-          <span class="lib-search-ic">🔍</span>
+          <span class="lib-search-ic">${ICON_SEARCH}</span>
           <input id="libSearch" placeholder="Search by name or number…" autocomplete="off"/>
         </div>
         <div class="juz-group" id="libAmmaGroup">
@@ -1437,6 +1475,365 @@
     });
   }
 
+  // ---------- Downloads: explicit, user-controlled offline audio ----------
+  // Deliberately NOT automatic. A full reciter is 400MB-1.5GB (every ayah
+  // is a separate file at everyayah.com) -- silently pulling that much
+  // data on install would be a real surprise on mobile data. This screen
+  // is the only thing that ever triggers a bulk download; ordinary
+  // listening still opportunistically persists played ayahs too (see
+  // warmAudioCache's IndexedDB write) but never in bulk.
+  const AUDIO_SIZES_PATH = "data/audio-sizes.json";
+  const AUDIO_SIZES_PER_AYAH_PATH = "data/audio-sizes-per-ayah.json";
+  let audioSizes = null; // { reciterId: { "surahNum": totalBytes } }
+  let audioSizesPerAyah = null; // { reciterId: { "surahNum": [bytesForAyah1, bytesForAyah2, ...] } }
+  async function ensureAudioSizes() {
+    if (audioSizes) return audioSizes;
+    const res = await fetch(AUDIO_SIZES_PATH);
+    if (!res.ok) throw new Error("Failed to load audio size table");
+    audioSizes = await res.json();
+    return audioSizes;
+  }
+  // Separate from the per-surah table above (which is enough for the
+  // surah list and the two whole-range quick actions) because a juz
+  // doesn't align to surah boundaries -- getting an exact "how big is
+  // Juz 12" figure needs real per-ayah numbers, not a prorated guess.
+  async function ensureAudioSizesPerAyah() {
+    if (audioSizesPerAyah) return audioSizesPerAyah;
+    const res = await fetch(AUDIO_SIZES_PER_AYAH_PATH);
+    if (!res.ok) throw new Error("Failed to load per-ayah audio size table");
+    audioSizesPerAyah = await res.json();
+    return audioSizesPerAyah;
+  }
+  function bytesForJuz(reciterId, juzNum) {
+    const table = audioSizesPerAyah && audioSizesPerAyah[reciterId];
+    if (!table) return null;
+    return ayahsInJuz(juzNum).reduce((sum, { surah, ayah }) => {
+      const arr = table[String(surah)];
+      return sum + (arr && arr[ayah - 1] ? arr[ayah - 1] : 0);
+    }, 0);
+  }
+  function fmtBytes(n) {
+    if (!n) return "0 MB";
+    if (n >= 1024 * 1024 * 1024) return (n / 1024 / 1024 / 1024).toFixed(2) + " GB";
+    if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
+    if (n >= 1024) return Math.round(n / 1024) + " KB";
+    return n + " B";
+  }
+  // Every {surah,ayah} pair belonging to a given juz. Mirrors
+  // juzAyahCount()'s exact boundary logic (same JUZ_START table) instead
+  // of re-deriving juz ranges a second way that could drift out of sync.
+  function ayahsInJuz(juzNum) {
+    const [startSurah, startAyah] = JUZ_START[juzNum - 1];
+    const next = JUZ_START[juzNum]; // undefined for juz 30 -- runs to the end
+    const list = [];
+    let s = startSurah, a = startAyah;
+    while (true) {
+      if (next && s === next[0] && a >= next[1]) break;
+      const meta = surahList.find(m => m.number === s);
+      if (!meta) break;
+      if (next && s === next[0]) {
+        for (let x = a; x < next[1]; x++) list.push({ surah: s, ayah: x });
+        break;
+      }
+      for (let x = a; x <= meta.numberOfAyahs; x++) list.push({ surah: s, ayah: x });
+      s++; a = 1;
+      if (s > 114) break;
+    }
+    return list;
+  }
+  function allAyahsInSurah(surahNum) {
+    const meta = surahList.find(m => m.number === surahNum);
+    if (!meta) return [];
+    const list = [];
+    for (let a = 1; a <= meta.numberOfAyahs; a++) list.push({ surah: surahNum, ayah: a });
+    return list;
+  }
+
+  const DOWNLOAD_CONCURRENCY = 5;
+  const downloadState = {
+    active: false, cancelled: false, reciter: null, label: "",
+    total: 0, done: 0, failed: 0, bytesTotal: 0, bytesDone: 0,
+  };
+  // Deliberately a plain array of callbacks rather than a full event-bus --
+  // the only subscriber is ever the currently-rendered Downloads screen
+  // itself, cleared every time that screen re-renders from scratch.
+  let downloadProgressListeners = [];
+  function notifyDownloadProgress() { downloadProgressListeners.forEach(fn => { try { fn(); } catch (e) {} }); }
+
+  // One batch at a time by design -- running two concurrent batches would
+  // just make both slower (same CDN, same concurrency budget) and make
+  // progress reporting/cancellation ambiguous for no real benefit.
+  async function downloadAyahList(reciterId, pairs, bytesHint) {
+    if (downloadState.active) return;
+    downloadState.active = true;
+    downloadState.cancelled = false;
+    downloadState.reciter = reciterId;
+    downloadState.total = pairs.length;
+    downloadState.done = 0;
+    downloadState.failed = 0;
+    downloadState.bytesTotal = bytesHint || 0;
+    downloadState.bytesDone = 0;
+    notifyDownloadProgress();
+
+    let idx = 0;
+    async function worker() {
+      while (idx < pairs.length) {
+        if (downloadState.cancelled) return;
+        const mine = idx++;
+        const { surah, ayah } = pairs[mine];
+        const url = audioUrlForReciter(reciterId, surah, ayah);
+        try {
+          const existing = await idbGet(url);
+          if (existing && existing.blob) {
+            downloadState.bytesDone += existing.bytes || 0;
+          } else {
+            const res = await fetch(url, { mode: "cors" });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            const blob = await res.blob();
+            if (!blob || !blob.size) throw new Error("empty response");
+            await idbPut({ url, reciter: reciterId, surah, ayah, bytes: blob.size, cachedAt: Date.now(), blob });
+            downloadState.bytesDone += blob.size;
+          }
+        } catch (e) {
+          downloadState.failed++;
+        }
+        downloadState.done++;
+        notifyDownloadProgress();
+      }
+    }
+    await Promise.all(Array.from({ length: DOWNLOAD_CONCURRENCY }, worker));
+    downloadState.active = false;
+    notifyDownloadProgress();
+    // "Downloaded" should mean usable with zero network -- make sure every
+    // touched surah's text/translation is cached too, not just its audio.
+    // ensureSurahLoaded() already persists to localStorage on success and
+    // is a no-op if a surah is already cached, so this is cheap to call
+    // even when most of the surahs involved were already loaded before.
+    const surahs = [...new Set(pairs.map(p => p.surah))];
+    for (const s of surahs) { try { await ensureSurahLoaded(s); } catch (e) { /* text will just re-fetch live next time it's opened */ } }
+  }
+  function cancelDownload() { downloadState.cancelled = true; }
+
+  async function storageUsedByReciter(reciterId) {
+    const records = await idbGetAllByReciter(reciterId);
+    const bytes = records.reduce((sum, r) => sum + (r.bytes || 0), 0);
+    const surahs = new Set(records.map(r => r.surah));
+    const ayahKeys = new Set(records.map(r => `${r.surah}:${r.ayah}`));
+    return { count: records.length, bytes, surahs, ayahKeys };
+  }
+
+  async function renderDownloads() {
+    cancelAudio(); resetActiveSessions();
+    downloadProgressListeners = [];
+    await Promise.all([
+      ensureSurahList(),
+      ensureAudioSizes().catch(() => { audioSizes = null; }),
+      ensureAudioSizesPerAyah().catch(() => { audioSizesPerAyah = null; }),
+    ]);
+
+    let selectedReciter = currentReciter;
+    let quotaEstimate = null;
+    try { quotaEstimate = await navigator.storage.estimate(); } catch (e) { /* not supported -- just don't show device totals */ }
+
+    async function draw() {
+      const usage = await storageUsedByReciter(selectedReciter).catch(() => ({ count: 0, bytes: 0, surahs: new Set() }));
+      const sizes = (audioSizes && audioSizes[selectedReciter]) || null;
+      const wholeQuranBytes = sizes ? Object.values(sizes).reduce((a, b) => a + b, 0) : null;
+      const juzAmmaBytes = sizes ? surahList.filter(s => s.number >= JUZ_AMMA_START && s.number <= JUZ_AMMA_END)
+        .reduce((sum, s) => sum + (sizes[String(s.number)] || 0), 0) : null;
+
+      const quotaLine = quotaEstimate && quotaEstimate.quota
+        ? `${fmtBytes(quotaEstimate.usage)} used of ${fmtBytes(quotaEstimate.quota)} available on this device`
+        : "";
+
+      screenEl.innerHTML = `
+        <div class="container">
+          <div class="hero" style="padding-top:0">
+            <h1 style="font-size:1.6rem">Downloads</h1>
+            <p>Save recitation audio to this device so Wird works with no connection at all. Downloads are per reciter -- pick which one below.</p>
+          </div>
+
+          <div class="dl-reciter-tabs">
+            ${Object.entries(RECITERS).map(([id, r]) => `
+              <button class="dl-reciter-tab ${id === selectedReciter ? "active" : ""}" data-reciter="${id}">${escapeHtml(r.name)}</button>
+            `).join("")}
+          </div>
+
+          <div class="dl-summary-card">
+            <div class="dl-summary-main">
+              <strong>${fmtBytes(usage.bytes)}</strong> downloaded
+              <span class="dl-summary-sub">${usage.surahs.size} of 114 surahs have at least one saved verse</span>
+            </div>
+            ${quotaLine ? `<div class="dl-summary-quota">${quotaLine}</div>` : ""}
+            ${usage.bytes > 0 ? `<button class="secondary-btn dl-delete-all" id="dlDeleteAll" type="button">Delete all downloaded audio for this reciter</button>` : ""}
+          </div>
+
+          <div class="dl-progress-card hidden" id="dlProgressCard">
+            <div class="dl-progress-label" id="dlProgressLabel"></div>
+            <div class="dl-progress-bar"><div class="dl-progress-fill" id="dlProgressFill"></div></div>
+            <div class="dl-progress-sub" id="dlProgressSub"></div>
+            <button class="secondary-btn" id="dlCancelBtn" type="button">Cancel</button>
+          </div>
+
+          <div class="dl-quick-actions">
+            <button class="mode-card" id="dlJuzAmma" type="button" ${downloadState.active ? "disabled" : ""}>
+              <div class="mode-card-top">
+                <span class="mode-card-label">Juz 'Amma</span>
+                <span class="mode-card-count">${juzAmmaBytes != null ? fmtBytes(juzAmmaBytes) : "…"}</span>
+              </div>
+              <p class="mode-card-blurb">Surahs 78-114 -- the recommended starting point.</p>
+            </button>
+            <button class="mode-card" id="dlWholeQuran" type="button" ${downloadState.active ? "disabled" : ""}>
+              <div class="mode-card-top">
+                <span class="mode-card-label">Whole Qur'an</span>
+                <span class="mode-card-count">${wholeQuranBytes != null ? fmtBytes(wholeQuranBytes) : "…"}</span>
+              </div>
+              <p class="mode-card-blurb">All 114 surahs for this reciter. This is a large download -- Wi-Fi recommended.</p>
+            </button>
+          </div>
+
+          <div class="juz-heading">By juz</div>
+          <div class="juz-progress-grid" id="dlJuzGrid">
+            ${Array.from({ length: 30 }, (_, i) => i + 1).map(j => {
+              const juzPairs = ayahsInJuz(j);
+              const complete = juzPairs.length > 0 && juzPairs.every(({ surah, ayah }) => usage.ayahKeys.has(`${surah}:${ayah}`));
+              const juzBytes = bytesForJuz(selectedReciter, j);
+              return `
+                <button class="juz-cell dl-juz-cell ${complete ? "juz-cell-complete" : "juz-cell-empty"}" data-juz="${j}"
+                  title="Juz ${j}${juzBytes != null ? ` — ${fmtBytes(juzBytes)}` : ""}${complete ? " — fully downloaded, tap to delete" : " — tap to download"}"
+                  aria-label="Juz ${j}${juzBytes != null ? `, ${fmtBytes(juzBytes)}` : ""}${complete ? ", fully downloaded, tap to delete" : ", tap to download"}"
+                  ${downloadState.active ? "disabled" : ""}>
+                  <span class="juz-cell-num">${j}</span>
+                  <span class="juz-cell-pct">${complete ? ICON_CHECK : juzBytes != null ? fmtBytes(juzBytes) : ""}</span>
+                </button>
+              `;
+            }).join("")}
+          </div>
+
+          <div class="juz-heading">By surah</div>
+          <div class="surah-list" id="dlSurahList">
+            ${surahList.map(s => {
+              const has = usage.surahs.has(s.number);
+              const size = sizes ? sizes[String(s.number)] : null;
+              return `
+                <div class="surah-row dl-surah-row" data-surah="${s.number}">
+                  <div class="surah-num">${s.number}</div>
+                  <div class="surah-meta">
+                    <div class="en">${escapeHtml(s.englishName)}</div>
+                    <div class="sub">${size != null ? fmtBytes(size) : `${s.numberOfAyahs} verses`}</div>
+                  </div>
+                  ${has
+                    ? `<button class="dl-row-btn dl-row-delete" data-surah="${s.number}" title="Delete downloaded audio" aria-label="Delete downloaded audio for ${escapeHtml(s.englishName)}" ${downloadState.active ? "disabled" : ""}>${ICON_TRASH}</button>`
+                    : `<button class="dl-row-btn dl-row-download" data-surah="${s.number}" title="Download this surah" aria-label="Download audio for ${escapeHtml(s.englishName)}" ${downloadState.active ? "disabled" : ""}>${ICON_DOWNLOAD}</button>`}
+                </div>
+              `;
+            }).join("")}
+          </div>
+        </div>
+      `;
+
+      document.querySelectorAll(".dl-reciter-tab").forEach(btn => {
+        btn.addEventListener("click", () => { selectedReciter = btn.dataset.reciter; draw(); });
+      });
+      const deleteAllBtn = document.getElementById("dlDeleteAll");
+      if (deleteAllBtn) {
+        deleteAllBtn.addEventListener("click", async () => {
+          deleteAllBtn.disabled = true;
+          deleteAllBtn.textContent = "Deleting…";
+          await idbDeleteByReciter(selectedReciter);
+          draw();
+        });
+      }
+      const juzAmmaBtn = document.getElementById("dlJuzAmma");
+      if (juzAmmaBtn) juzAmmaBtn.addEventListener("click", () => {
+        const pairs = surahList.filter(s => s.number >= JUZ_AMMA_START && s.number <= JUZ_AMMA_END)
+          .flatMap(s => allAyahsInSurah(s.number));
+        runDownload(pairs, juzAmmaBytes);
+      });
+      const wholeBtn = document.getElementById("dlWholeQuran");
+      if (wholeBtn) wholeBtn.addEventListener("click", () => {
+        const pairs = surahList.flatMap(s => allAyahsInSurah(s.number));
+        runDownload(pairs, wholeQuranBytes);
+      });
+      document.querySelectorAll(".dl-row-download").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const surahNum = Number(btn.dataset.surah);
+          const size = sizes ? sizes[String(surahNum)] : null;
+          runDownload(allAyahsInSurah(surahNum), size);
+        });
+      });
+      document.querySelectorAll(".dl-row-delete").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const surahNum = Number(btn.dataset.surah);
+          btn.disabled = true;
+          await idbDeleteByReciterSurah(selectedReciter, surahNum);
+          draw();
+        });
+      });
+      document.querySelectorAll(".dl-juz-cell").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const juzNum = Number(btn.dataset.juz);
+          if (btn.classList.contains("juz-cell-complete")) {
+            btn.disabled = true;
+            // Deletes exactly this juz's ayahs, not by whole surah -- a juz
+            // boundary regularly falls mid-surah, and deleting the entire
+            // surah here would also wipe audio belonging to the NEXT juz
+            // if it happens to share that surah.
+            const pairs = ayahsInJuz(juzNum);
+            await Promise.all(pairs.map(({ surah, ayah }) => idbDelete(audioUrlForReciter(selectedReciter, surah, ayah))));
+            draw();
+          } else {
+            runDownload(ayahsInJuz(juzNum), bytesForJuz(selectedReciter, juzNum));
+          }
+        });
+      });
+
+      function runDownload(pairs, bytesHint) {
+        if (downloadState.active || !pairs.length) return;
+        const progressCard = document.getElementById("dlProgressCard");
+        const label = document.getElementById("dlProgressLabel");
+        const fill = document.getElementById("dlProgressFill");
+        const sub = document.getElementById("dlProgressSub");
+        progressCard.classList.remove("hidden");
+        downloadProgressListeners.push(() => {
+          const pct = downloadState.total ? Math.round((downloadState.done / downloadState.total) * 100) : 0;
+          label.textContent = downloadState.active
+            ? `Downloading… ${downloadState.done} / ${downloadState.total} verses`
+            : `Done — ${downloadState.done} / ${downloadState.total} verses saved${downloadState.failed ? ` (${downloadState.failed} failed, will retry next time)` : ""}`;
+          fill.style.width = pct + "%";
+          sub.textContent = downloadState.bytesTotal ? `${fmtBytes(downloadState.bytesDone)} of ~${fmtBytes(downloadState.bytesTotal)}` : fmtBytes(downloadState.bytesDone);
+          if (!downloadState.active) {
+            document.getElementById("dlCancelBtn").classList.add("hidden");
+            setTimeout(() => { if (!downloadState.active) draw(); }, 900);
+          }
+        });
+        document.getElementById("dlCancelBtn").classList.remove("hidden");
+        document.getElementById("dlCancelBtn").addEventListener("click", cancelDownload, { once: true });
+        downloadAyahList(selectedReciter, pairs, bytesHint);
+      }
+
+      // A download already running when this screen opens (e.g. navigated
+      // away and back) should keep reflecting live progress, not show a
+      // stale/empty progress card.
+      if (downloadState.active && downloadState.reciter === selectedReciter) {
+        runDownload.__resume = true;
+        document.getElementById("dlProgressCard").classList.remove("hidden");
+        document.getElementById("dlProgressLabel").textContent = `Downloading… ${downloadState.done} / ${downloadState.total} verses`;
+        document.getElementById("dlCancelBtn").addEventListener("click", cancelDownload, { once: true });
+        downloadProgressListeners.push(() => {
+          const pct = downloadState.total ? Math.round((downloadState.done / downloadState.total) * 100) : 0;
+          document.getElementById("dlProgressFill").style.width = pct + "%";
+          document.getElementById("dlProgressLabel").textContent = downloadState.active
+            ? `Downloading… ${downloadState.done} / ${downloadState.total} verses`
+            : `Done — ${downloadState.done} / ${downloadState.total} verses saved`;
+          document.getElementById("dlProgressSub").textContent = downloadState.bytesTotal ? `${fmtBytes(downloadState.bytesDone)} of ~${fmtBytes(downloadState.bytesTotal)}` : fmtBytes(downloadState.bytesDone);
+        });
+      }
+    }
+
+    await draw();
+  }
+
   async function renderSurahBrowser(surahNum) {
     screenEl.innerHTML = `<div class="container"><p style="text-align:center;color:var(--text-muted)">Loading…</p></div>`;
     let data;
@@ -1455,7 +1852,7 @@
         <div class="ayah-row">
           <div class="ayah-row-top">
             <span class="ayah-num-badge">Verse ${a.numberInSurah} · Page ${a.page}</span>
-            <button class="add-toggle ${added ? "added" : ""}" data-ayah="${a.numberInSurah}">${added ? "Added ✓" : "Add to Wird"}</button>
+            <button class="add-toggle ${added ? "added" : ""}" data-ayah="${a.numberInSurah}">${added ? `Added ${ICON_CHECK}` : "Add to Wird"}</button>
           </div>
           <div class="ayah-arabic">${arabicHtmlRaw(surahNum, a.numberInSurah, a.text)}</div>
           <div class="ayah-translation">${escapeHtml(a.translation)}</div>
@@ -1643,9 +2040,9 @@
           <p>Passive listening — text stays visible. Good for reinforcement and tadabbur, not a memory test.</p>
         </div>
         <div class="sard-controls">
-          <button class="play-btn" id="listenPlayBtn">▶</button>
-          <button class="secondary-btn" id="listenPrevBtn">◂ Prev</button>
-          <button class="secondary-btn" id="listenNextBtn">Next ▸</button>
+          <button class="play-btn" id="listenPlayBtn">${ICON_PLAY}</button>
+          <button class="secondary-btn" id="listenPrevBtn">${ICON_PREV} Prev</button>
+          <button class="secondary-btn" id="listenNextBtn">Next ${ICON_NEXT}</button>
         </div>
         <div class="listen-lines" id="listenLines">${lines}</div>
       </div>
@@ -1680,12 +2077,12 @@
     if (pageListenState.playing) {
       pageListenState.playing = false;
       cancelAudio();
-      btn.textContent = "▶";
+      btn.innerHTML = ICON_PLAY;
       btn.classList.remove("playing");
       return;
     }
     pageListenState.playing = true;
-    btn.textContent = "⏸";
+    btn.innerHTML = ICON_PAUSE;
     btn.classList.add("playing");
     playCurrentPageListenVerse();
   }
@@ -1699,19 +2096,19 @@
     // Sard's own prefetch: a continuous playback feature is exactly where
     // a mid-stream network hiccup is most disruptive.
     const next = pageListenState.verses[pageListenState.idx + 1];
-    if (next) warmAudioCache(audioUrlFor(next.surah, next.ayah));
+    if (next) warmAudioCache(audioUrlFor(next.surah, next.ayah), { reciter: currentReciter, surah: next.surah, ayah: next.ayah });
     playAudioWithHighlight(v.surah, v.ayah, container, () => {
       if (!pageListenState || !pageListenState.playing) return;
       if (pageListenState.idx >= pageListenState.verses.length - 1) {
         pageListenState.playing = false;
         const b = document.getElementById("listenPlayBtn");
-        if (b) { b.textContent = "▶"; b.classList.remove("playing"); }
+        if (b) { b.innerHTML = ICON_PLAY; b.classList.remove("playing"); }
         return;
       }
       pageListenState.idx++;
       drawPageListen();
       const b = document.getElementById("listenPlayBtn");
-      if (b) { b.textContent = "⏸"; b.classList.add("playing"); }
+      if (b) { b.innerHTML = ICON_PAUSE; b.classList.add("playing"); }
       playCurrentPageListenVerse();
     }, () => {
       // A genuine failure (retries already exhausted) used to fall
@@ -1720,7 +2117,7 @@
       // fix in Sard's playCurrentSardVerse() for the full reasoning.
       if (!pageListenState) return;
       pageListenState.playing = false;
-      if (btn) { btn.textContent = "▶"; btn.classList.remove("playing"); showPlayError(btn); }
+      if (btn) { btn.innerHTML = ICON_PLAY; btn.classList.remove("playing"); showPlayError(btn); }
     });
   }
   function stepPageListen(delta) {
@@ -1744,7 +2141,7 @@
     if (wasPlaying) {
       pageListenState.playing = true;
       const btn = document.getElementById("listenPlayBtn");
-      if (btn) { btn.textContent = "⏸"; btn.classList.add("playing"); }
+      if (btn) { btn.innerHTML = ICON_PAUSE; btn.classList.add("playing"); }
       playCurrentPageListenVerse();
     }
   }
@@ -1781,7 +2178,7 @@
         <button class="exit-btn" id="exitReviewBtn">&times;</button>
         <div class="progress-track"><div class="progress-fill" id="reviewProgressFill" style="width:0%"></div></div>
         <span class="combo-badge" id="comboBadge"></span>
-        ${VOICE_MIRROR_SUPPORTED ? `<button class="mic-btn" id="voiceMirrorBtn" aria-label="Voice Mirror — record and compare your own recitation" title="Voice Mirror">🎙</button>` : ""}
+        ${VOICE_MIRROR_SUPPORTED ? `<button class="mic-btn" id="voiceMirrorBtn" aria-label="Voice Mirror — record and compare your own recitation" title="Voice Mirror">${ICON_MIC}</button>` : ""}
       </div>
       <div id="reviewHost"></div>
     `;
@@ -1899,6 +2296,103 @@
   function clearReviewKeydownCleanup() {
     if (activeReviewKeydownCleanup) { activeReviewKeydownCleanup(); activeReviewKeydownCleanup = null; }
   }
+  // ---------- persistent offline audio storage (IndexedDB) ----------
+  // A real, cross-reload offline cache -- what used to live here was an
+  // in-memory Map that was gone the moment the tab reloaded, which meant
+  // "offline support" only ever covered a live tab that happened to have
+  // already played something earlier in the exact same session. This
+  // layer is what makes the Downloads screen's explicit "save this for
+  // offline" actually mean something. Keyed by the full audio URL (which
+  // already encodes reciter+surah+ayah via audioUrlForReciter's folder
+  // naming), so lookups never need to parse it back apart.
+  const OFFLINE_DB_NAME = "wird-offline-v1";
+  const OFFLINE_DB_VERSION = 1;
+  const OFFLINE_STORE = "audio";
+  let offlineDbPromise = null;
+  function openOfflineDb() {
+    if (offlineDbPromise) return offlineDbPromise;
+    offlineDbPromise = new Promise((resolve, reject) => {
+      if (!("indexedDB" in window)) { reject(new Error("no indexedDB")); return; }
+      const req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(OFFLINE_STORE)) {
+          const store = db.createObjectStore(OFFLINE_STORE, { keyPath: "url" });
+          store.createIndex("reciter", "reciter", { unique: false });
+          store.createIndex("reciterSurah", ["reciter", "surah"], { unique: false });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return offlineDbPromise;
+  }
+  function idbPut(record) {
+    return openOfflineDb().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(OFFLINE_STORE, "readwrite");
+      tx.objectStore(OFFLINE_STORE).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function idbGet(url) {
+    return openOfflineDb().then((db) => new Promise((resolve, reject) => {
+      const req = db.transaction(OFFLINE_STORE, "readonly").objectStore(OFFLINE_STORE).get(url);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    }));
+  }
+  function idbDelete(url) {
+    return openOfflineDb().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(OFFLINE_STORE, "readwrite");
+      tx.objectStore(OFFLINE_STORE).delete(url);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function idbGetAllByReciter(reciterId) {
+    return openOfflineDb().then((db) => new Promise((resolve, reject) => {
+      const idx = db.transaction(OFFLINE_STORE, "readonly").objectStore(OFFLINE_STORE).index("reciter");
+      const req = idx.getAll(IDBKeyRange.only(reciterId));
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    }));
+  }
+  function idbGetAllByReciterSurah(reciterId, surah) {
+    return openOfflineDb().then((db) => new Promise((resolve, reject) => {
+      const idx = db.transaction(OFFLINE_STORE, "readonly").objectStore(OFFLINE_STORE).index("reciterSurah");
+      const req = idx.getAll(IDBKeyRange.only([reciterId, surah]));
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    }));
+  }
+  function idbDeleteByReciterSurah(reciterId, surah) {
+    return openOfflineDb().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(OFFLINE_STORE, "readwrite");
+      const idx = tx.objectStore(OFFLINE_STORE).index("reciterSurah");
+      const cursorReq = idx.openCursor(IDBKeyRange.only([reciterId, surah]));
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (cursor) { cursor.delete(); cursor.continue(); }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+  function idbDeleteByReciter(reciterId) {
+    return openOfflineDb().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(OFFLINE_STORE, "readwrite");
+      const idx = tx.objectStore(OFFLINE_STORE).index("reciter");
+      const cursorReq = idx.openCursor(IDBKeyRange.only(reciterId));
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (cursor) { cursor.delete(); cursor.continue(); }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
   // Offline audio, done carefully this time. The earlier attempt broke
   // playback outright (online included) by gating every single play() on a
   // fetch()-then-blob step FIRST -- meaning any hiccup in that step delayed
@@ -1922,22 +2416,63 @@
   // headers/status), so this fallback path was dead code from day one --
   // it always deleted its own cache entry a moment after "warming" it,
   // never actually storing a playable blob for cachedBlobFor() to return.
-  // Each unique URL is only ever warmed once per page load.
+  // Each unique URL is only ever warmed once per page load in-memory;
+  // successful warms also persist to IndexedDB (fire-and-forget, never
+  // awaited) so casual online listening quietly builds up real offline
+  // coverage over time, on top of whatever the Downloads screen explicitly
+  // saved.
   const audioBlobUrlCache = new Map();
-  function warmAudioCache(url) {
+  function warmAudioCache(url, meta) {
     if (audioBlobUrlCache.has(url)) return;
     audioBlobUrlCache.set(url, "pending");
     fetch(url, { mode: "cors" }).then((res) => {
       if (!res.ok) { audioBlobUrlCache.delete(url); return null; }
       return res.blob();
     }).then((blob) => {
-      if (blob && blob.size) audioBlobUrlCache.set(url, URL.createObjectURL(blob));
+      if (blob && blob.size) {
+        audioBlobUrlCache.set(url, URL.createObjectURL(blob));
+        if (meta) {
+          idbPut({ url, reciter: meta.reciter, surah: meta.surah, ayah: meta.ayah, bytes: blob.size, cachedAt: Date.now(), blob }).catch(() => {});
+        }
+      }
       else audioBlobUrlCache.delete(url);
     }).catch(() => audioBlobUrlCache.delete(url));
   }
   function cachedBlobFor(url) {
     const v = audioBlobUrlCache.get(url);
     return v && v !== "pending" ? v : null;
+  }
+  // Async persistent-cache lookup, used when the in-memory Map above (which
+  // only remembers what's been warmed THIS session) misses -- e.g. a fresh
+  // offline reload where nothing has played yet this session but was
+  // explicitly downloaded (or opportunistically cached) in a past one.
+  // Deliberately fire-and-forget: it just populates audioBlobUrlCache so
+  // the EXISTING synchronous cachedBlobFor()/retry-fallback logic already
+  // proven in playAudio()/playAudioWithHighlight() picks it up naturally
+  // on the next retry tick, rather than making those functions async.
+  function warmFromPersistentCache(url) {
+    if (audioBlobUrlCache.has(url)) return;
+    idbGet(url).then((record) => {
+      if (record && record.blob && !audioBlobUrlCache.has(url)) {
+        audioBlobUrlCache.set(url, URL.createObjectURL(record.blob));
+      }
+    }).catch(() => {});
+  }
+  // Reverse-maps an everyayah.com URL back into {reciter, surah, ayah} so
+  // the generic playAudio(url) -- used for plenty of non-Quran audio too
+  // (vocab recordings, etc.) -- can still persist a successful play to
+  // IndexedDB without needing its signature to carry that context through
+  // every call site. Returns null for anything that doesn't match the
+  // exact everyayah.com/data/<folder>/SSSAAA.mp3 shape, which is always
+  // safe: no metadata just means that particular warm() doesn't persist,
+  // never an error.
+  const RECITER_FOLDER_TO_ID = Object.fromEntries(Object.entries(RECITERS).map(([id, r]) => [r.folder, id]));
+  function parseAyahMetaFromUrl(url) {
+    const m = /everyayah\.com\/data\/([^/]+)\/(\d{3})(\d{3})\.mp3$/.exec(url);
+    if (!m) return null;
+    const reciter = RECITER_FOLDER_TO_ID[m[1]];
+    if (!reciter) return null;
+    return { reciter, surah: parseInt(m[2], 10), ayah: parseInt(m[3], 10) };
   }
 
   // onError (optional) fires only once retry has genuinely been exhausted,
@@ -1947,6 +2482,7 @@
   function playAudio(url, rate, onEnd, onError) {
     cancelAudio();
     const offlineBlob = !navigator.onLine ? cachedBlobFor(url) : null;
+    if (!navigator.onLine && !offlineBlob) warmFromPersistentCache(url);
     const audio = new Audio(offlineBlob || url);
     audio.playbackRate = rate || 1;
     currentAudio = audio;
@@ -2003,7 +2539,7 @@
     }
     audio.addEventListener("ended", () => {
       finish();
-      if (!offlineBlob) warmAudioCache(url);
+      if (!offlineBlob) warmAudioCache(url, parseAyahMetaFromUrl(url));
     });
     audio.addEventListener("error", handleError);
     audio.play().catch(handleError);
@@ -2025,6 +2561,7 @@
     cancelAudio();
     const url = audioUrlFor(surah, ayah);
     const offlineBlob = !navigator.onLine ? cachedBlobFor(url) : null;
+    if (!navigator.onLine && !offlineBlob) warmFromPersistentCache(url);
     const audio = new Audio(offlineBlob || url);
     currentAudio = audio;
     let rafId = null;
@@ -2046,6 +2583,13 @@
     }
     function tick() {
       if (!currentAudio || currentAudio !== audio) { clearHighlight(); return; } // superseded/paused externally (e.g. cancelAudio() from a manual pause) -- clean up our own highlight rather than leaving it stuck
+      // If playback paused/stalled without going through cancelAudio() --
+      // a lock-screen/Bluetooth pause, the tab backgrounding, a network
+      // stall that never reaches 'ended' or 'error' -- stop rescheduling
+      // rather than spinning this rAF loop at full speed forever. The
+      // existing "play" listener below already re-kicks tick() if
+      // playback resumes, so this doesn't need its own resume handling.
+      if (audio.paused) return;
       if (segments && containerEl) {
         const ms = audio.currentTime * 1000;
         const seg = segments.find(([, start, end]) => ms >= start && ms < end);
@@ -2079,7 +2623,7 @@
     }
     audio.addEventListener("ended", () => {
       settle();
-      if (!offlineBlob) warmAudioCache(url);
+      if (!offlineBlob) warmAudioCache(url, parseAyahMetaFromUrl(url));
     });
     audio.addEventListener("error", handleError);
     audio.play().catch(handleError);
@@ -2096,13 +2640,13 @@
   function showPlayError(btn) {
     if (!btn) return;
     btn.classList.add("play-error");
-    btn.textContent = "⟳";
+    btn.innerHTML = ICON_RETRY;
     btn.setAttribute("aria-label", "Couldn't play — tap to retry");
   }
   function clearPlayError(btn) {
     if (!btn || !btn.classList.contains("play-error")) return;
     btn.classList.remove("play-error");
-    btn.textContent = "▶";
+    btn.innerHTML = ICON_PLAY;
     btn.setAttribute("aria-label", btn.dataset.playLabel || "Play recitation");
   }
 
@@ -2385,7 +2929,7 @@
           <div class="story-content">
             <div class="mode-kicker">Listen &amp; Recall</div>
             <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-            <button type="button" class="play-btn story-play-btn" id="storyPlayBtn" aria-label="Play recitation">▶</button>
+            <button type="button" class="play-btn story-play-btn" id="storyPlayBtn" aria-label="Play recitation">${ICON_PLAY}</button>
             <div class="story-loop-indicator" id="loopIndicator"><span class="pulse-dot"></span>Tap to listen, swipe when ready</div>
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic">${arabicHtmlFor(card)}</div></div>
             <div class="card-translation">${escapeHtml(card.translation)}</div>
@@ -2486,7 +3030,7 @@
           <div class="story-content">
             <div class="mode-kicker">Fade Recall</div>
             <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-            <button type="button" class="play-btn story-play-btn" id="storyPlayBtn" aria-label="Play recitation">▶</button>
+            <button type="button" class="play-btn story-play-btn" id="storyPlayBtn" aria-label="Play recitation">${ICON_PLAY}</button>
             <div class="story-loop-indicator">Recite the missing words, tap to check</div>
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" id="fadeArabic">${faded}</div></div>
             <div class="card-translation" id="fadeTranslation"></div>
@@ -2579,7 +3123,7 @@
           <div class="label">End of this verse</div>
           <div class="arabic-frag">…${escapeHtml(card.text.split(" ").slice(-4).join(" "))}</div>
         </div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">${ICON_PLAY}</button></div>
         <div class="chain-options" id="chainOptions">
           ${options.map((t, i) => `<button class="chain-opt" data-i="${i}">${escapeHtml(t)}</button>`).join("")}
         </div>
@@ -2629,7 +3173,7 @@
       <div class="review-stage">
         <div class="mode-kicker">Look-Alike Challenge</div>
         <div class="mode-hint">These two verses closely resemble each other. Which one is <b>${escapeHtml(refBadge(card))}</b>?</div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">${ICON_PLAY}</button></div>
         <div class="mutashabih-pair" id="mutashabihPair">
           ${options.map((c, i) => `
             <div class="mutashabih-card" data-i="${i}">
@@ -2691,7 +3235,7 @@
         <div class="mode-hint">Which mushaf page is this verse on?</div>
         <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
         <div class="card-arabic-box"><div class="card-arabic" id="pageSenseArabic">${arabicHtmlFor(card)}</div></div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">${ICON_PLAY}</button></div>
         <div class="page-picker" id="pagePicker">
           ${choices.map(p => `<button class="page-cell" data-p="${p}">${p}</button>`).join("")}
         </div>
@@ -2741,7 +3285,7 @@
       <div class="review-stage">
         <div class="mode-kicker">Blind Spot</div>
         <div class="mode-hint">No reference shown. Listen, then place this verse among your own memorized set.</div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">${ICON_PLAY}</button></div>
         <div class="options" id="blindOptions">
           ${options.map((c, i) => `<button class="option" data-i="${i}">${escapeHtml(refBadge(c))}</button>`).join("")}
         </div>
@@ -2803,7 +3347,7 @@
         <div class="mode-kicker">Word Order</div>
         <div class="mode-hint">Tap the words in the right order to rebuild the verse.</div>
         <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">${ICON_PLAY}</button></div>
         <div class="wb-target" id="assembleTarget" dir="rtl"></div>
         <div class="wb-bank" id="assembleBank">
           ${bank.map(w => `<button class="wb-chip" data-id="${w.id}" data-ar="${escapeHtml(w.ar)}">${escapeHtml(w.ar)}</button>`).join("")}
@@ -2944,7 +3488,7 @@
         <div class="mode-hint">Which word belongs in the gap?</div>
         <div class="ref-badge">${escapeHtml(refBadge(card))}</div>
         <div class="card-arabic-box"><div class="card-arabic" id="clozeArabic">${withBlank}</div></div>
-        <div class="audio-row"><button class="play-btn" id="playBtn">▶</button></div>
+        <div class="audio-row"><button class="play-btn" id="playBtn">${ICON_PLAY}</button></div>
         <div class="options" id="clozeOptions">
           ${options.map((w, i) => `<button class="option" data-i="${i}" dir="rtl" style="text-align:right;font-family:var(--font-arabic);font-size:1.3rem">${escapeHtml(w.ar)}</button>`).join("")}
         </div>
@@ -3062,7 +3606,7 @@
           <p>Recite from memory, verse by verse, without stopping. Text stays hidden — this tests the whole chain, not one link at a time.</p>
         </div>
         <div class="sard-controls">
-          <button class="play-btn" id="sardPlayBtn">▶</button>
+          <button class="play-btn" id="sardPlayBtn">${ICON_PLAY}</button>
           <button class="secondary-btn" id="sardNextBtn">Next verse (silent)</button>
         </div>
         <button class="stumble-btn" id="sardStumbleBtn">I stumbled here — keep going</button>
@@ -3096,12 +3640,12 @@
     if (sardSession.playing) {
       sardSession.playing = false;
       cancelAudio();
-      btn.textContent = "▶";
+      btn.innerHTML = ICON_PLAY;
       btn.classList.remove("playing");
       return;
     }
     sardSession.playing = true;
-    btn.textContent = "⏸";
+    btn.innerHTML = ICON_PAUSE;
     btn.classList.add("playing");
     playCurrentSardVerse();
   }
@@ -3118,7 +3662,7 @@
     // time it's needed makes that moment far less likely to ever hit a
     // live network request at all, retry logic or not.
     const next = sardSession.verses[sardSession.idx + 1];
-    if (next) warmAudioCache(audioUrlFor(next.surah, next.ayah));
+    if (next) warmAudioCache(audioUrlFor(next.surah, next.ayah), { reciter: currentReciter, surah: next.surah, ayah: next.ayah });
     playAudio(audioUrlFor(v.surah, v.ayah), 1, () => {
       if (!sardSession || !sardSession.playing) return;
       advanceSard(true);
@@ -3131,7 +3675,7 @@
       // indication. Stop autoplay and show the error instead.
       if (!sardSession) return;
       sardSession.playing = false;
-      if (btn) { btn.textContent = "▶"; btn.classList.remove("playing"); showPlayError(btn); }
+      if (btn) { btn.innerHTML = ICON_PLAY; btn.classList.remove("playing"); showPlayError(btn); }
     });
   }
   function advanceSard(fromPlayback) {
@@ -3145,7 +3689,7 @@
     renderSardScreen();
     if (fromPlayback && sardSession.playing) {
       const btn = document.getElementById("sardPlayBtn");
-      if (btn) { btn.textContent = "⏸"; btn.classList.add("playing"); }
+      if (btn) { btn.innerHTML = ICON_PAUSE; btn.classList.add("playing"); }
       playCurrentSardVerse();
     }
   }
@@ -3158,7 +3702,7 @@
     renderSardScreen();
     if (sardSession.playing) {
       const btn = document.getElementById("sardPlayBtn");
-      if (btn) { btn.textContent = "⏸"; btn.classList.add("playing"); }
+      if (btn) { btn.innerHTML = ICON_PAUSE; btn.classList.add("playing"); }
       playCurrentSardVerse();
     }
   }
@@ -3298,7 +3842,7 @@
             </div>
           ` : `
             <div class="empty-state">
-              <div class="glyph">✓</div>
+              <div class="glyph"><svg viewBox="0 0 24 24" width="38" height="38" aria-hidden="true"><path d="M4 12.5l6 6L20 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
               <p>Nothing due right now. Browse below to add more words, or come back tomorrow.</p>
             </div>
           `}
@@ -3360,7 +3904,7 @@
       <div class="ayah-row">
         <div class="ayah-row-top">
           <span class="ayah-num-badge">Rank ${w.rk} · seen ${w.n}×</span>
-          <button class="add-toggle ${added ? "added" : ""}" data-id="${escapeHtml(w.id)}">${added ? "Added ✓" : "Add"}</button>
+          <button class="add-toggle ${added ? "added" : ""}" data-id="${escapeHtml(w.id)}">${added ? `Added ${ICON_CHECK}` : "Add"}</button>
         </div>
         <div class="ayah-arabic" dir="rtl" style="direction:rtl">${escapeHtml(w.ar)}</div>
         <div class="ayah-translation">${escapeHtml(w.tr)} — ${w.en.map(escapeHtml).join(", ")}</div>
@@ -3373,7 +3917,7 @@
         const id = btn.dataset.id;
         if (vocabCards[id]) removeVocabWord(id); else addVocabWord(id);
         btn.classList.toggle("added");
-        btn.textContent = vocabCards[id] ? "Added ✓" : "Add";
+        btn.innerHTML = vocabCards[id] ? `Added ${ICON_CHECK}` : "Add";
       });
     });
   }
@@ -3510,7 +4054,7 @@
     if (btn) btn.addEventListener("click", () => { if (onSettle) onSettle(); skipListeningVocabExercise(card, word); });
   }
 
-  function vocabPlayBtnHtml(id) { return `<div class="audio-row"><button class="play-btn" id="vocabPlayBtn">▶</button></div>`; }
+  function vocabPlayBtnHtml(id) { return `<div class="audio-row"><button class="play-btn" id="vocabPlayBtn">${ICON_PLAY}</button></div>`; }
   function wireVocabPlay(word) {
     const btn = document.getElementById("vocabPlayBtn");
     if (!btn) return;
@@ -3540,7 +4084,7 @@
           <div class="story-content">
             <div class="mode-kicker">Flashcard</div>
             <div class="ref-badge">Rank ${word.rk} · seen ${word.n}×</div>
-            ${word.au ? `<button type="button" class="play-btn story-play-btn" id="storyPlayBtn" aria-label="Play word">▶</button>` : ""}
+            ${word.au ? `<button type="button" class="play-btn story-play-btn" id="storyPlayBtn" aria-label="Play word">${ICON_PLAY}</button>` : ""}
             <div class="story-loop-indicator">Recall the meaning, tap to check</div>
             <div class="card-arabic-box story-arabic-box"><div class="card-arabic tap-to-check" dir="rtl" id="vocabFlashWord">${escapeHtml(word.ar)}</div></div>
             <div class="card-translation" id="vocabFlashMeaning"></div>
@@ -3762,7 +4306,9 @@
   // the class first and forcing a reflow (offsetWidth read) so the
   // animation restarts even for two taps on the same screen in a row,
   // where the class would otherwise already be present and no-op.
+  let screenRenderToken = 0;
   async function switchScreen(name) {
+    const myToken = ++screenRenderToken;
     activeScreenName = name;
     document.querySelectorAll(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.screen === name));
     let renderPromise;
@@ -3771,7 +4317,17 @@
     else if (name === "mushaf") renderPromise = renderMushaf();
     else if (name === "vocab") renderPromise = renderVocabHome();
     else if (name === "progress") renderPromise = renderProgress();
+    else if (name === "downloads") renderPromise = renderDownloads();
     await renderPromise;
+    // A newer switchScreen() call can start (and finish) while this one's
+    // render was still awaiting a fetch/IndexedDB read -- if that happened,
+    // this call's screenEl.innerHTML write would land after the newer
+    // one's and silently revert the user back to the wrong screen. Just
+    // bail out without painting -- no need to re-render from here: the
+    // newer call is (by construction) always the last one whose token
+    // still matches when IT finishes, since nothing increments the token
+    // again after it, so it always paints the correct final screen itself.
+    if (myToken !== screenRenderToken) return;
     screenEl.classList.remove("screen-fade-in");
     void screenEl.offsetWidth;
     screenEl.classList.add("screen-fade-in");
@@ -3842,14 +4398,14 @@
         </div>
         <div class="vm-compare" id="vmCompare" style="display:none">
           <div class="vm-track">
-            <button class="vm-play-btn" id="vmPlayMine" type="button">▶</button>
+            <button class="vm-play-btn" id="vmPlayMine" type="button">${ICON_PLAY}</button>
             <div class="vm-track-info">
               <div class="vm-track-label">Your take</div>
               <canvas class="vm-wave" id="vmWaveMine" width="240" height="34"></canvas>
             </div>
           </div>
           <div class="vm-track">
-            <button class="vm-play-btn" id="vmPlayReciter" type="button">▶</button>
+            <button class="vm-play-btn" id="vmPlayReciter" type="button">${ICON_PLAY}</button>
             <div class="vm-track-info">
               <div class="vm-track-label">Reciter</div>
               <div class="vm-eq" id="vmEqReciter"><span></span><span></span><span></span><span></span><span></span></div>
@@ -3998,9 +4554,14 @@
     // Same offline caching approach as playAudio() -- see the note there.
     const reciterUrl = audioUrlFor(voiceMirrorState.card.surah, voiceMirrorState.card.ayah);
     const reciterOfflineBlob = !navigator.onLine ? cachedBlobFor(reciterUrl) : null;
+    if (!navigator.onLine && !reciterOfflineBlob) warmFromPersistentCache(reciterUrl);
     const reciterAudio = new Audio(reciterOfflineBlob || reciterUrl);
     voiceMirrorState.reciterAudio = reciterAudio;
-    reciterAudio.addEventListener("ended", () => { if (!reciterOfflineBlob) warmAudioCache(reciterUrl); });
+    reciterAudio.addEventListener("ended", () => {
+      if (!reciterOfflineBlob) {
+        warmAudioCache(reciterUrl, { reciter: currentReciter, surah: voiceMirrorState.card.surah, ayah: voiceMirrorState.card.ayah });
+      }
+    });
     reciterAudio.addEventListener("error", () => {
       if (voiceMirrorState.reciterAudio !== reciterAudio) return;
       const cached = !reciterOfflineBlob && cachedBlobFor(reciterUrl);
@@ -4038,11 +4599,11 @@
     let retried = false;
     let handledThisAttempt = false;
     audioEl.addEventListener("playing", () => {
-      btn.textContent = "❚❚";
+      btn.innerHTML = ICON_PAUSE;
       if (eqEl) eqEl.classList.add("playing");
     });
     audioEl.addEventListener("pause", () => {
-      btn.textContent = "▶";
+      btn.innerHTML = ICON_PLAY;
       if (eqEl) eqEl.classList.remove("playing");
     });
     audioEl.addEventListener("error", handleError);
@@ -4254,7 +4815,7 @@
     save(STATS_KEY, stats);
     save(SETTINGS_KEY, settings);
     save(ACHIEVEMENTS_KEY, achievements);
-    localStorage.setItem(RECITER_KEY, currentReciter);
+    try { localStorage.setItem(RECITER_KEY, currentReciter); } catch (e) { /* private mode or quota exceeded */ }
   }
   function pushToCloud() {
     if (window.CloudSync && window.CloudSync.user) window.CloudSync.pushProgress(buildProgressPayload());
@@ -4292,8 +4853,7 @@
     document.getElementById("themeToggleBtn").addEventListener("click", toggleTheme);
     document.getElementById("soundToggleBtn").addEventListener("click", toggleSound);
     updateSoundToggleIcon();
-    // Disabled for now -- offline support is off, no need to show the pill.
-    // wireOfflineIndicator();
+    wireOfflineIndicator();
     wirePullToRefresh();
     renderReciterSelect();
     wireMediaSessionActions();

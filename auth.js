@@ -322,7 +322,9 @@
     });
     window.addEventListener("pagehide", () => window.CloudSync.flushPush());
 
+    let authEventToken = 0;
     onAuthStateChanged(auth, async user => {
+      const myAuthToken = ++authEventToken;
       window.CloudSync.user = user;
       if (user) {
         const ref = doc(db, "apps", APP_ID, "users", user.uid);
@@ -359,6 +361,12 @@
           // same as always.
           approved = isOwner || loadApprovedCache()[user.uid] === true;
         }
+        // A newer auth event (e.g. the user hit Sign Out right after
+        // signing in, before the getDoc above resolved) may have already
+        // landed and put the UI in its own correct state -- if so, this
+        // stale callback must not reveal/hide the app based on a user who
+        // may no longer even be signed in.
+        if (myAuthToken !== authEventToken) return;
         if (approved) cacheApproved(user.uid);
 
         if (!approved) {

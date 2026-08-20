@@ -72,12 +72,15 @@
         <span class="brand-name">Wird</span>
       </button>
       <div class="topbar-controls">
-        <span class="offline-pill hidden" id="offlinePill" title="No connection — offline-cached content still works">⚡ Offline</span>
+        <span class="offline-pill hidden" id="offlinePill" title="No connection — offline-cached content still works">
+          <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" fill="currentColor"/></svg>
+          Offline
+        </span>
         <select class="reciter-select" id="reciterSelect" aria-label="Reciter"></select>
-        <button class="settings-btn" id="soundToggleBtn" aria-label="Toggle sound effects">🔊</button>
-        <button class="settings-btn" id="themeToggleBtn" aria-label="Toggle light/dark theme">☾</button>
-        <button class="settings-btn hidden" id="accountToggle" aria-label="Account">👤</button>
-        <button class="settings-btn" id="settingsBtn" aria-label="Study settings">⚙</button>
+        <button class="settings-btn" id="soundToggleBtn" aria-label="Toggle sound effects"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor"/><path d="M16.5 9a3.5 3.5 0 010 6M19 6.5a7 7 0 010 11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button class="settings-btn" id="themeToggleBtn" aria-label="Toggle light/dark theme"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button>
+        <button class="settings-btn hidden" id="accountToggle" aria-label="Account"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="8" r="3.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 20c1.4-3.6 4.4-5.5 7.5-5.5s6.1 1.9 7.5 5.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <button class="settings-btn" id="settingsBtn" aria-label="Study settings"><svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5v2.3m0 12.4v2.3M20.5 12h-2.3M5.8 12H3.5M17.7 6.3l-1.6 1.6M7.9 16.1l-1.6 1.6M17.7 17.7l-1.6-1.6M7.9 7.9L6.3 6.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     </div>
     <nav class="topnav" id="topnav">
@@ -86,6 +89,7 @@
       <button class="nav-btn" data-screen="mushaf">Mushaf</button>
       <button class="nav-btn" data-screen="vocab">Vocab</button>
       <button class="nav-btn" data-screen="progress">Progress</button>
+      <button class="nav-btn" data-screen="downloads">Downloads</button>
     </nav>
   </header>
   <div class="modal-overlay" id="settingsOverlay"></div>
@@ -99,7 +103,10 @@
       </div>
       <p class="modal-sub">Signed in as <strong id="accountEmail"></strong>. Your progress syncs automatically to this account.</p>
       <p class="modal-sub" id="lastSyncDiagnostic" style="font-size:0.78rem;opacity:0.75;"></p>
-      <button class="secondary-btn" id="syncNowBtn" type="button" style="width:100%;margin-bottom:10px">☁️ Sync now</button>
+      <button class="secondary-btn" id="syncNowBtn" type="button" style="width:100%;margin-bottom:10px">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" style="vertical-align:-2px"><path d="M7 18a4 4 0 01-.5-7.97A5 5 0 0116.9 9.1 3.5 3.5 0 0116.5 16H7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        Sync now
+      </button>
       <p class="modal-sub" id="syncStatus" style="font-size:0.78rem;opacity:0.75;"></p>
       <button class="secondary-btn" id="signOutBtn" style="width:100%">Sign out</button>
     </div>
@@ -109,25 +116,43 @@
   <main class="screen" id="screen"></main>
 </div>
 
+<div class="update-banner hidden" id="updateBanner">
+  <span>A new version of Wird is ready.</span>
+  <button type="button" id="updateBannerBtn">Refresh</button>
+</div>
+
 <script src="app.js?v=20260827"></script>
 <script src="firebase-config.js?v=20260827"></script>
 <script src="auth.js?v=20260827"></script>
 <script>
-  // Offline support disabled for now. Only re-register when an old worker
-  // is already installed -- that forces an IMMEDIATE update check against
-  // sw.js (which is now a self-destructing kill switch: it wipes every
-  // cache and unregisters itself on activate) instead of waiting on the
-  // browser's slow ~24h automatic check, which is what silently trapped
-  // devices behind a stale cached shell before this fix. Once clean,
-  // getRegistrations() comes back empty and this stops registering
-  // anything at all.
+  // sw.js is now network-first for the app shell (see its own comments for
+  // why that makes it safe to always register unconditionally again --
+  // the old cache-first version is what previously trapped devices behind
+  // stale content, not the act of having a service worker at all).
   if ("serviceWorker" in navigator) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.getRegistrations().then((regs) => {
-        if (regs.length > 0) navigator.serviceWorker.register("sw.js").catch(() => {});
+      navigator.serviceWorker.register("sw.js").then((reg) => {
+        // Only the FIRST activation of a worker for this page load leaves
+        // navigator.serviceWorker.controller unset -- if a controller
+        // already exists, any newer worker found from here on is a real
+        // update to an already-running app, not the initial install, so
+        // that's the only case worth surfacing to the user.
+        const hadController = !!navigator.serviceWorker.controller;
+        reg.addEventListener("updatefound", () => {
+          const installing = reg.installing;
+          if (!installing) return;
+          installing.addEventListener("statechange", () => {
+            if (installing.state === "installed" && hadController) {
+              document.getElementById("updateBanner").classList.remove("hidden");
+            }
+          });
+        });
       }).catch(() => {});
     });
   }
+  document.getElementById("updateBannerBtn").addEventListener("click", () => {
+    window.location.reload();
+  });
 </script>
 </body>
 </html>
