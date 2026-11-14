@@ -26,7 +26,7 @@
 // silently shadowing it. Keeping this file's job narrow (shell only) is
 // deliberate, not an oversight.
 
-const CACHE_VERSION = "20260827"; // keep in lockstep with index.html's ?v= query strings
+const CACHE_VERSION = "20261114"; // keep in lockstep with index.html's ?v= query strings
 const CACHE_NAME = `wird-shell-${CACHE_VERSION}`;
 
 const SHELL_FILES = [

@@ -43,6 +43,130 @@
   const ICON_CLOUD = `<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M7 18a4 4 0 01-.5-7.97A5 5 0 0116.9 9.1 3.5 3.5 0 0116.5 16H7z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
   const ICON_BOLT = `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z" fill="currentColor"/></svg>`;
 
+  // ---------- illumination: decorative inline-SVG ornaments ----------
+  // Purely presentational -- every function here returns markup only and
+  // touches no state. Decoration always sits AROUND Qur'anic text (frames,
+  // headers, margins, medallions), never on top of it, and none of these
+  // elements carry the .word-tap / data-pos hooks the word-highlight sync
+  // relies on, so they can't interfere with it.
+  const AR_DIGITS = "٠١٢٣٤٥٦٧٨٩";
+  function arNum(n) { return String(n).replace(/\d/g, d => AR_DIGITS[d]); }
+  let ornUid = 0;
+  function starPoints(cx, cy, rOuter, rInner, points, rot = -90) {
+    const out = [];
+    for (let i = 0; i < points * 2; i++) {
+      const r = i % 2 ? rInner : rOuter;
+      const a = (rot + (i * 180) / points) * Math.PI / 180;
+      out.push(`${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`);
+    }
+    return out.join(" ");
+  }
+  // khatam: the classic eight-pointed star of two interlaced squares
+  function khatamSvg(cls = "") {
+    return `<svg class="orn-khatam ${cls}" viewBox="0 0 24 24" aria-hidden="true"><polygon points="${starPoints(12, 12, 11, 7.6, 8, -90)}" fill="currentColor" opacity="0.9"/><polygon points="${starPoints(12, 12, 6.2, 4.3, 8, -67.5)}" fill="var(--surface)"/><circle cx="12" cy="12" r="2.2" fill="currentColor"/></svg>`;
+  }
+  // Rosette ayah-end marker, styled around the ayah number the way a
+  // printed mushaf does it. aria-hidden: the verse number is already
+  // announced by the surrounding row's own label.
+  const AYAH_ROSETTE_PETALS = Array.from({ length: 12 }, (_, i) => {
+    const a = (i * 30) * Math.PI / 180;
+    return `<circle cx="${(20 + 15.2 * Math.cos(a)).toFixed(2)}" cy="${(20 + 15.2 * Math.sin(a)).toFixed(2)}" r="3.6"/>`;
+  }).join("");
+  function ayahMarkerHtml(n) {
+    return ` <span class="ayah-end" aria-hidden="true"><svg viewBox="0 0 40 40"><g class="ayah-end-petals">${AYAH_ROSETTE_PETALS}</g><circle class="ayah-end-ring" cx="20" cy="20" r="14.2"/><circle class="ayah-end-inner" cx="20" cy="20" r="11.4"/></svg><span class="ayah-end-num">${arNum(n)}</span></span>`;
+  }
+  // Small crest above page titles: rule, lozenges, central star.
+  function heroCrownHtml() {
+    return `<div class="hero-crown" aria-hidden="true"><svg viewBox="0 0 220 28"><path class="hc-line" d="M4 14H86M134 14H216"/><path class="hc-line" d="M30 19H82M138 19H190" opacity="0.5"/><polygon class="hc-fill" points="92,14 98,10 104,14 98,18"/><polygon class="hc-fill" points="116,14 122,10 128,14 122,18"/><polygon class="hc-star" points="${starPoints(110, 14, 11, 6, 8, -90)}"/><circle class="hc-dot" cx="110" cy="14" r="2.4"/><circle class="hc-fill" cx="4" cy="14" r="2"/><circle class="hc-fill" cx="216" cy="14" r="2"/></svg></div>`;
+  }
+  // Shamsa (sunburst) medallion -- used as the completion medal and around
+  // the day's verse count. `inner` is ordinary HTML laid over the plain
+  // center disc (never over Qur'an text).
+  function shamsaHtml(inner, cls = "") {
+    const id = "sh" + (++ornUid);
+    return `<div class="shamsa ${cls}"><svg class="shamsa-svg" viewBox="0 0 120 120" aria-hidden="true">
+      <defs><linearGradient id="${id}g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="var(--gold-bright)"/><stop offset="0.55" stop-color="var(--gold)"/><stop offset="1" stop-color="var(--gold-deep)"/></linearGradient></defs>
+      <g class="shamsa-rays"><polygon points="${starPoints(60, 60, 58, 47, 32, -90)}" fill="url(#${id}g)" opacity="0.32"/><polygon points="${starPoints(60, 60, 54, 44, 16, -90)}" fill="url(#${id}g)" opacity="0.7"/></g>
+      <circle cx="60" cy="60" r="43" fill="var(--lapis)"/>
+      <circle cx="60" cy="60" r="43" fill="none" stroke="url(#${id}g)" stroke-width="2.4"/>
+      <g class="shamsa-lattice" fill="none" stroke="var(--gold-bright)" stroke-width="0.7" opacity="0.55"><polygon points="${starPoints(60, 60, 40, 30, 8, -90)}"/><polygon points="${starPoints(60, 60, 40, 30, 8, -67.5)}"/></g>
+      <circle cx="60" cy="60" r="31" fill="var(--medal-core)" stroke="url(#${id}g)" stroke-width="1.6"/>
+      <circle cx="60" cy="60" r="27.5" fill="none" stroke="var(--gold)" stroke-width="0.6" stroke-dasharray="1.5 2.2"/>
+    </svg><div class="shamsa-inner">${inner}</div></div>`;
+  }
+  // Completion medal: a shamsa on two hanging ribbons, with an eight-point
+  // star at its heart.
+  function medalHtml(cls = "") {
+    return `<div class="medal ${cls}" aria-hidden="true">
+      <svg class="medal-ribbons" viewBox="0 0 120 70"><path d="M38 0L26 62l14-9 9 13L60 6z" fill="var(--emerald)"/><path d="M82 0l12 62-14-9-9 13L60 6z" fill="var(--lapis)"/><path d="M38 0L26 62M82 0l12 62" stroke="var(--gold)" stroke-width="1.2" fill="none"/></svg>
+      ${shamsaHtml(`<svg viewBox="0 0 40 40" class="medal-star"><polygon points="${starPoints(20, 20, 17, 11.5, 8, -90)}" fill="var(--gold-bright)"/><polygon points="${starPoints(20, 20, 9, 6.2, 8, -67.5)}" fill="var(--medal-core)"/><circle cx="20" cy="20" r="3.4" fill="var(--gold)"/></svg>`, "medal-shamsa")}
+      <span class="medal-shine"></span>
+    </div>`;
+  }
+  // Fanous (lantern) for the daily-consistency streak. Only the flame
+  // animates (gentle flicker), and not at all under reduced motion.
+  function lanternSvg(lit) {
+    const id = "ln" + (++ornUid);
+    return `<svg class="lantern ${lit ? "lit" : ""}" viewBox="0 0 48 64" aria-hidden="true">
+      <defs><radialGradient id="${id}f" cx="0.5" cy="0.65" r="0.6"><stop offset="0" stop-color="#fff6d0"/><stop offset="0.45" stop-color="#ffd36b"/><stop offset="1" stop-color="#e08a1e" stop-opacity="0"/></radialGradient></defs>
+      <circle class="lantern-glow" cx="24" cy="36" r="20" fill="url(#${id}f)" opacity="0.55"/>
+      <path d="M24 2v4" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="24" cy="7.5" r="2.2" fill="none" stroke="var(--gold)" stroke-width="1.4"/>
+      <path d="M14 18c0-5 4.5-8.5 10-8.5S34 13 34 18z" fill="var(--gold)"/>
+      <path d="M12 18h24l-2 4H14z" fill="var(--gold-deep)"/>
+      <path d="M14 22h20l3 22c0 3-6 6-13 6s-13-3-13-6z" fill="var(--lantern-glass)" stroke="var(--gold)" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M24 22v27M18.5 22l-2 25M29.5 22l2 25" stroke="var(--gold)" stroke-width="0.9" opacity="0.7"/>
+      <path class="lantern-flame" d="M24 30c3 4 4.5 6.5 4.5 9a4.5 4.5 0 01-9 0c0-2.5 1.5-5 4.5-9z" fill="url(#${id}f)"/>
+      <path d="M13 50h22l-3 5H16z" fill="var(--gold)"/>
+      <path d="M20 55h8l-1.5 5h-5z" fill="var(--gold-deep)"/>
+    </svg>`;
+  }
+  // Progress ring (0-100). The arc draws itself in on render.
+  function ringHtml(pct, label, sub) {
+    const p = Math.max(0, Math.min(100, Math.round(pct)));
+    return `<div class="ring" style="--p:${p}">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="ring-track" cx="50" cy="50" r="42" pathLength="100"/><circle class="ring-ticks" cx="50" cy="50" r="48" pathLength="100"/><circle class="ring-arc" cx="50" cy="50" r="42" pathLength="100" style="stroke-dashoffset:${100 - p}"/></svg>
+      <div class="ring-label"><b>${label}</b>${sub ? `<span>${sub}</span>` : ""}</div>
+    </div>`;
+  }
+  // Empty-state illustration: a mihrab arch with a hanging lamp and stars.
+  function mihrabIllustration() {
+    return `<svg class="ill ill-mihrab" viewBox="0 0 160 130" aria-hidden="true">
+      <g class="ill-stars">${[[22, 24, 5], [138, 30, 4], [30, 70, 3], [132, 78, 3.4], [118, 12, 2.6]].map(([x, y, r]) => `<polygon points="${starPoints(x, y, r, r * 0.45, 4, -90)}"/>`).join("")}</g>
+      <path class="ill-arch-outer" d="M40 124V66C40 38 58 22 80 8c22 14 40 30 40 58v58"/>
+      <path class="ill-arch-inner" d="M50 124V68c0-22 13-35 30-46 17 11 30 24 30 46v56"/>
+      <path class="ill-floor" d="M20 124h120"/>
+      <g class="ill-lamp"><path d="M80 22v20" class="ill-chain"/><path d="M71 46h18l-3 10c-1 4-4 6-6 6s-5-2-6-6z" class="ill-lamp-body"/><circle cx="80" cy="54" r="3" class="ill-lamp-flame"/><path d="M73 46l7-5 7 5" class="ill-chain"/></g>
+      <path class="ill-step" d="M58 124v-10h44v10"/>
+    </svg>`;
+  }
+  // Downloads hero: a rehal (folding Qur'an stand) with a closed mushaf on
+  // it and an arrow settling down into it -- "keep it on this device".
+  function rehalIllustration() {
+    return `<svg class="ill ill-rehal" viewBox="0 0 160 120" aria-hidden="true">
+      <g class="ill-stars">${[[24, 26, 4], [136, 20, 5], [128, 64, 3]].map(([x, y, r]) => `<polygon points="${starPoints(x, y, r, r * 0.45, 4, -90)}"/>`).join("")}</g>
+      <g class="ill-arrow"><path d="M80 6v34" /><path d="M68 30l12 12 12-12"/></g>
+      <path class="ill-book" d="M46 62l34-8 34 8-34 10z"/>
+      <path class="ill-book-edge" d="M46 62v6l34 10 34-10v-6"/>
+      <path class="ill-rehal-leg" d="M50 74l60 40M110 74l-60 40"/>
+      <path class="ill-floor" d="M24 114h112"/>
+    </svg>`;
+  }
+  // Unwan (illuminated headpiece) for surah/sard headers: a lapis cartouche
+  // with gold rules and palmette ansae at either end.
+  const ANSA_SVG = `<svg class="unwan-ansa-svg" viewBox="0 0 40 60" aria-hidden="true"><path d="M40 12C24 12 8 18 4 30c4 12 20 18 36 18" fill="var(--lapis)" stroke="var(--gold)" stroke-width="1.6"/><path d="M34 22c-8 0-16 3-20 8 4 5 12 8 20 8" fill="none" stroke="var(--gold-bright)" stroke-width="1"/><circle cx="12" cy="30" r="3.2" fill="var(--gold-bright)"/></svg>`;
+  function unwanHtml(arTitle, enTitle, sub) {
+    return `<div class="unwan">
+      <span class="unwan-ansa unwan-ansa-l">${ANSA_SVG}</span>
+      <div class="unwan-panel">
+        ${arTitle ? `<div class="unwan-ar" lang="ar" dir="rtl">${arTitle}</div>` : ""}
+        <div class="unwan-en">${enTitle}</div>
+        ${sub ? `<div class="unwan-sub">${sub}</div>` : ""}
+      </div>
+      <span class="unwan-ansa unwan-ansa-r">${ANSA_SVG}</span>
+    </div>`;
+  }
+
   // ---------- theme ----------
   // CSS already carries :root[data-theme="dark"/"light"] overrides (used by
   // the system prefers-color-scheme fallback) -- this just adds an explicit
@@ -904,9 +1028,9 @@
     const isJuz = meta.type === "juz";
     overlay.innerHTML = `
       <div class="achieve-card">
-        <div class="achieve-seal">﴾ ﴿</div>
+        <div class="achieve-seal">${medalHtml("medal-lg")}</div>
         <div class="achieve-kicker">${isJuz ? "Juz Complete" : "Surah Complete"}</div>
-        <div class="achieve-name">${isJuz ? `Juz ${meta.number}` : escapeHtml(meta.name)}</div>
+        <div class="achieve-name${isJuz ? " achieve-name-en" : ""}">${isJuz ? `Juz ${meta.number}` : escapeHtml(meta.name)}</div>
         <div class="achieve-sub">${isJuz ? "" : `${escapeHtml(meta.englishName)} &middot; `}${meta.count} verses, fully matured</div>
         <p class="achieve-note">${isJuz
           ? "An entire juz, cover to cover — every verse has passed its full cure, seven encounters to learn, two more to confirm it held. This one is yours now."
@@ -1034,13 +1158,14 @@
     screenEl.innerHTML = `
       <div class="container">
         <div class="hero">
+          ${heroCrownHtml()}
           <div class="hero-eyebrow">Bismillāh</div>
           <h1>Today's Wird</h1>
           <p>A living portion drawn fresh each day from what's due for review and what's new to begin — not a fixed lesson plan.</p>
         </div>
         <div class="today-card">
           ${total > 0 ? `
-            <div class="today-count">${total}</div>
+            ${shamsaHtml(`<div class="today-count">${total}</div>`, "today-shamsa")}
             <div class="today-label">verses in today's portion</div>
             <div class="today-breakdown">
               <span><b>${due.length}</b> due for review</span>
@@ -1049,22 +1174,22 @@
             <button class="primary-btn" id="startWirdBtn">Begin Today's Wird</button>
           ` : allCards.length === 0 ? `
             <div class="empty-state">
-              <div class="glyph">﴾ ﴿</div>
+              <div class="glyph">${mihrabIllustration()}</div>
               <p>You haven't started memorizing anything yet. Visit the Library to add your first verses — Juz 'Amma is the traditional starting point.</p>
             </div>
             <button class="secondary-btn" id="goLibraryBtn">Open Library</button>
           ` : `
             <div class="empty-state">
-              <div class="glyph"><svg viewBox="0 0 24 24" width="38" height="38" aria-hidden="true"><path d="M4 12.5l6 6L20 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <div class="glyph">${medalHtml("medal-sm")}</div>
               <p>Nothing due right now. Come back tomorrow, or add more verses to memorize from the Library.</p>
             </div>
             <button class="secondary-btn" id="goLibraryBtn">Open Library</button>
           `}
         </div>
-        <div class="stat-row">
-          <div class="stat-box"><b>${stats.streak}</b><span>day streak</span></div>
-          <div class="stat-box"><b>${allCards.length}</b><span>in memorization</span></div>
-          <div class="stat-box"><b>${matureCt}</b><span>mature</span></div>
+        <div class="stat-row stat-row-illum">
+          <div class="stat-box stat-streak">${lanternSvg(stats.streak > 0)}<b>${stats.streak}</b><span>day streak</span></div>
+          <div class="stat-box stat-ring">${ringHtml(allCards.length ? (matureCt / allCards.length) * 100 : 0, matureCt, "mature")}<span>of ${allCards.length} verses</span></div>
+          <div class="stat-box stat-count">${khatamSvg("stat-khatam")}<b>${allCards.length}</b><span>in memorization</span></div>
         </div>
         ${achievements.completedSurahs.length ? `
           <div class="star-divider">${starSvg()}</div>
@@ -1143,7 +1268,7 @@
   }
 
   function starSvg() {
-    return `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0l2.5 7.5L22 8l-6 4.5L18 20l-6-4-6 4 2-7.5-6-4.5 7.5-.5z"/></svg>`;
+    return `<span class="sd-dot"></span>${khatamSvg()}<span class="sd-dot"></span>`;
   }
 
   // ---------- progress ----------
@@ -1192,7 +1317,7 @@
       <svg class="growth-chart" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Verses memorized over time, from ${points[0].total} to ${maxTotal}">
         ${gridY.map(gy => `<line x1="${PAD_L}" y1="${gy.toFixed(1)}" x2="${W - PAD_R}" y2="${gy.toFixed(1)}" class="growth-grid"/>`).join("")}
         <path d="${areaPath}" class="growth-area"/>
-        <path d="${linePath}" class="growth-line"/>
+        <path d="${linePath}" class="growth-line" pathLength="1"/>
       </svg>
       <div class="growth-axis">
         <span>${escapeHtml(formatShortDate(points[0].date))}</span>
@@ -1255,7 +1380,7 @@
       const cls = complete ? "complete" : have === 0 ? "empty" : matureN === have ? "mature" : "partial";
       const clickable = have > 0;
       cells.push(`
-        <div class="juz-cell juz-cell-${cls}${clickable ? " juz-cell-clickable" : ""}" ${clickable ? `data-juz="${j}"` : ""} title="Juz ${j}: ${have}/${total || "?"} verses added${matureN ? `, ${matureN} mature` : ""}${clickable ? " — tap to start a sard" : ""}">
+        <div class="juz-cell juz-cell-${cls}${clickable ? " juz-cell-clickable" : ""}" style="--pct:${pct}" ${clickable ? `data-juz="${j}"` : ""} title="Juz ${j}: ${have}/${total || "?"} verses added${matureN ? `, ${matureN} mature` : ""}${clickable ? " — tap to start a sard" : ""}">
           <span class="juz-cell-num">${j}</span>
           <span class="juz-cell-pct">${have ? pct + "%" : "—"}</span>
         </div>
@@ -1303,19 +1428,20 @@
     screenEl.innerHTML = `
       <div class="container">
         <div class="hero">
+          ${heroCrownHtml()}
           <div class="hero-eyebrow">Sīrah</div>
           <h1>Your Progress</h1>
           <p>The whole picture — how far you've come, not just what's due today.</p>
         </div>
         <div class="stat-row" style="grid-template-columns:repeat(4,1fr)">
-          <div class="stat-box"><b data-count="${stats.streak}">0</b><span>day streak${stats.longestStreak > stats.streak ? `<br><i class="stat-best">best ${stats.longestStreak}</i>` : ""}</span></div>
+          <div class="stat-box stat-streak">${lanternSvg(stats.streak > 0)}<b data-count="${stats.streak}">0</b><span>day streak${stats.longestStreak > stats.streak ? `<br><i class="stat-best">best ${stats.longestStreak}</i>` : ""}</span></div>
           <div class="stat-box"><b data-count="${allCards.length}">0</b><span>total verses</span></div>
           <div class="stat-box"><b data-count="${counts.mature}">0</b><span>mature</span></div>
           <div class="stat-box"><b data-count="${stats.totalReviews}">0</b><span>reviews done</span></div>
         </div>
         ${allCards.length === 0 ? `
           <div class="empty-state">
-            <div class="glyph">﴾ ﴿</div>
+            <div class="glyph">${mihrabIllustration()}</div>
             <p>Nothing to show yet — add verses from the Library and your progress will build up here.</p>
           </div>
         ` : `
@@ -1424,6 +1550,7 @@
     screenEl.innerHTML = `
       <div class="container">
         <div class="hero" style="padding-top:0">
+          ${heroCrownHtml()}
           <h1 style="font-size:1.6rem">Library</h1>
           <p>Browse the Qur'an and add verses to your memorization set.</p>
         </div>
@@ -1440,7 +1567,7 @@
           <div class="surah-list">${rest.map(row).join("")}</div>
         </div>
         <div class="empty-state hidden" id="libSearchEmpty">
-          <div class="glyph">﴾ ﴿</div>
+          <div class="glyph">${mihrabIllustration()}</div>
           <p>No surahs match "<span id="libSearchEmptyQ"></span>".</p>
         </div>
       </div>
@@ -1649,6 +1776,7 @@
       screenEl.innerHTML = `
         <div class="container">
           <div class="hero" style="padding-top:0">
+            <div class="dl-hero-ill">${rehalIllustration()}</div>
             <h1 style="font-size:1.6rem">Downloads</h1>
             <p>Save recitation audio to this device so Wird works with no connection at all. Downloads are per reciter -- pick which one below.</p>
           </div>
@@ -1854,7 +1982,7 @@
             <span class="ayah-num-badge">Verse ${a.numberInSurah} · Page ${a.page}</span>
             <button class="add-toggle ${added ? "added" : ""}" data-ayah="${a.numberInSurah}">${added ? `Added ${ICON_CHECK}` : "Add to Wird"}</button>
           </div>
-          <div class="ayah-arabic">${arabicHtmlRaw(surahNum, a.numberInSurah, a.text)}</div>
+          <div class="ayah-arabic">${arabicHtmlRaw(surahNum, a.numberInSurah, a.text)}${ayahMarkerHtml(a.numberInSurah)}</div>
           <div class="ayah-translation">${escapeHtml(a.translation)}</div>
         </div>
       `;
@@ -1863,10 +1991,7 @@
     screenEl.innerHTML = `
       <div class="container">
         <button class="back-btn" id="backLibBtn">&larr; Library</button>
-        <div class="hero" style="padding-top:0">
-          <h1 style="font-size:1.5rem">${escapeHtml(meta.englishName)}</h1>
-          <p>${escapeHtml(meta.englishNameTranslation)} · ${data.ayahs.length} verses</p>
-        </div>
+        ${unwanHtml(escapeHtml(meta.name), escapeHtml(meta.englishName), `${escapeHtml(meta.englishNameTranslation)} · ${data.ayahs.length} verses · ${escapeHtml(meta.revelationType)}`)}
         <button class="primary-btn" id="addAllBtn" style="margin-bottom:20px">Add entire surah to Wird</button>
         <div class="ayah-browser">${rows}</div>
       </div>
@@ -1905,7 +2030,7 @@
       screenEl.innerHTML = `
         <div class="container">
           <div class="hero" style="padding-top:0"><h1 style="font-size:1.6rem">Mushaf</h1><p>A page-by-page view of your memorization, once you've added verses.</p></div>
-          <div class="empty-state"><div class="glyph">﴾ ﴿</div><p>Nothing here yet — add verses from the Library first.</p></div>
+          <div class="empty-state"><div class="glyph">${mihrabIllustration()}</div><p>Nothing here yet — add verses from the Library first.</p></div>
         </div>
       `;
       return;
@@ -1946,6 +2071,7 @@
     screenEl.innerHTML = `
       <div class="container">
         <div class="hero" style="padding-top:0">
+          ${heroCrownHtml()}
           <h1 style="font-size:1.6rem">Mushaf</h1>
           <p>${mushafViewMode === "weak"
             ? "Where you've actually struggled — built from your own Again/Hard ratings and sard stumble taps, not guessed."
@@ -2023,7 +2149,7 @@
     const lines = verses.map((v, i) => `
       <div class="listen-line ${i === idx ? "current" : ""}" data-i="${i}">
         <div class="listen-line-ref">${escapeHtml(refBadge(v))}</div>
-        <div class="listen-line-arabic">${arabicHtmlFor(v)}</div>
+        <div class="listen-line-arabic">${arabicHtmlFor(v)}${ayahMarkerHtml(v.ayah)}</div>
         <div class="listen-line-translation">${escapeHtml(v.translation)}</div>
       </div>
     `).join("");
@@ -3532,7 +3658,7 @@
     screenEl.innerHTML = `
       <div class="container">
         <div class="complete-screen">
-          <div class="complete-emoji">﴾ ﴿</div>
+          <div class="complete-emoji">${medalHtml()}</div>
           <h2>${isDrill ? "Drill complete" : "Wird complete"}</h2>
           <p>${isDrill
             ? "That struggle point just got a fresh review. Keep drilling weak spots or head back to the Mushaf."
@@ -3602,7 +3728,7 @@
       <div class="container">
         <div class="hero" style="padding-top:12px;padding-bottom:4px">
           <div class="hero-eyebrow">Sard · Continuous Recitation</div>
-          <h1 style="font-size:1.5rem">${title}</h1>
+          ${unwanHtml(meta ? escapeHtml(meta.name) : "", title, "")}
           <p>Recite from memory, verse by verse, without stopping. Text stays hidden — this tests the whole chain, not one link at a time.</p>
         </div>
         <div class="sard-controls">
@@ -3726,7 +3852,7 @@
       screenEl.innerHTML = `
         <div class="container">
           <div class="complete-screen">
-            <div class="complete-emoji">﴾ ﴿</div>
+            <div class="complete-emoji">${medalHtml()}</div>
             <h2>Juz ${juz} — recited in full</h2>
             <p>${verses.length} verses${stumbles.size ? `, ${stumbles.size} marked as rough` : ""}. Alhamdulillah.</p>
             <button class="primary-btn" id="sardDoneBtn" style="max-width:280px;margin:18px auto 0">Continue</button>
@@ -3740,7 +3866,7 @@
     screenEl.innerHTML = `
       <div class="container">
         <div class="complete-screen">
-          <div class="complete-emoji">﴾ ﴿</div>
+          <div class="complete-emoji">${medalHtml()}</div>
           <h2>How did that sard feel?</h2>
           <p>${meta ? escapeHtml(meta.englishName) : "This surah"} — ${verses.length} verses${stumbles.size ? `, ${stumbles.size} marked as rough` : ""}. Your honest answer sets when this surah comes back around.</p>
           <div class="sard-rating-row">
@@ -3822,6 +3948,7 @@
     screenEl.innerHTML = `
       <div class="container">
         <div class="hero">
+          ${heroCrownHtml()}
           <div class="hero-eyebrow">15,000+ real words, ranked by frequency</div>
           <h1>Vocabulary</h1>
           <p>Computed directly from the entire Qur'an's own text — the ~100 most frequent words alone cover roughly half of everything you'll ever read or hear recited.</p>
@@ -3837,12 +3964,12 @@
             <button class="primary-btn" id="startVocabBtn">Start Vocabulary Practice</button>
           ` : allVocabCards.length === 0 ? `
             <div class="empty-state">
-              <div class="glyph">ب</div>
+              <div class="glyph">${mihrabIllustration()}</div>
               <p>Browse by frequency tier or theme below and add words to start building your personal vocabulary set.</p>
             </div>
           ` : `
             <div class="empty-state">
-              <div class="glyph"><svg viewBox="0 0 24 24" width="38" height="38" aria-hidden="true"><path d="M4 12.5l6 6L20 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+              <div class="glyph">${medalHtml("medal-sm")}</div>
               <p>Nothing due right now. Browse below to add more words, or come back tomorrow.</p>
             </div>
           `}
@@ -4287,7 +4414,7 @@
     screenEl.innerHTML = `
       <div class="container">
         <div class="complete-screen">
-          <div class="complete-emoji">ب</div>
+          <div class="complete-emoji">${medalHtml()}</div>
           <h2>Vocabulary practice complete</h2>
           <p>Come back tomorrow for what's next due, or add more words from the Vocabulary tab.</p>
           <button class="primary-btn" id="backVocabBtn2" style="max-width:280px;margin:0 auto">Back to Vocabulary</button>

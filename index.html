@@ -7,29 +7,29 @@
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
 <title>Wird — Memorize Quran the way ḥuffāẓ actually do</title>
-<link rel="manifest" href="manifest.json?v=20260827" />
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f2e6" />
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0b1310" />
+<link rel="manifest" href="manifest.json?v=20261114" />
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f5eedc" />
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#08110e" />
 <!-- iOS: makes "Add to Home Screen" launch full-screen and standalone
      instead of opening inside a bare Safari tab. -->
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="Wird" />
-<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png?v=20260827" />
-<link rel="icon" href="icons/favicon-32.png?v=20260827" sizes="32x32" type="image/png" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png?v=20261114" />
+<link rel="icon" href="icons/favicon-32.png?v=20261114" sizes="32x32" type="image/png" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Scheherazade+New:wght@400;700&family=Amiri+Quran&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="style.css?v=20260827" />
+<link rel="stylesheet" href="style.css?v=20261114" />
 </head>
 <body>
 
-<div class="app-loading" id="appLoading"><div class="app-loading-mark">﴾ ﴿</div></div>
+<div class="app-loading" id="appLoading"><div class="app-loading-mark"><span class="brand-mark loading-star" aria-hidden="true"><svg viewBox="0 0 32 32" width="56" height="56"><defs><linearGradient id="bmG1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e6c66e"/><stop offset="1" stop-color="#9a6d14"/></linearGradient></defs><polygon points="16,1 19.9,6.6 26.6,5.4 25.4,12.1 31,16 25.4,19.9 26.6,26.6 19.9,25.4 16,31 12.1,25.4 5.4,26.6 6.6,19.9 1,16 6.6,12.1 5.4,5.4 12.1,6.6" fill="url(#bmG1)"/><circle cx="16" cy="16" r="8.6" fill="var(--lapis)"/><polygon points="16,9.5 17.9,12.3 21.2,12 20.9,15.3 23.5,16 20.9,16.7 21.2,20 17.9,19.7 16,22.5 14.1,19.7 10.8,20 11.1,16.7 8.5,16 11.1,15.3 10.8,12 14.1,12.3" fill="#e6c66e"/></svg></span></div></div>
 
 <div class="auth-gate hidden" id="authGate">
   <div class="auth-card">
     <div class="auth-brand">
-      <span class="brand-mark" aria-hidden="true">﴾ ﴿</span>
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="28" height="28"><defs><linearGradient id="bmG2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e6c66e"/><stop offset="1" stop-color="#9a6d14"/></linearGradient></defs><polygon points="16,1 19.9,6.6 26.6,5.4 25.4,12.1 31,16 25.4,19.9 26.6,26.6 19.9,25.4 16,31 12.1,25.4 5.4,26.6 6.6,19.9 1,16 6.6,12.1 5.4,5.4 12.1,6.6" fill="url(#bmG2)"/><circle cx="16" cy="16" r="8.6" fill="var(--lapis)"/><polygon points="16,9.5 17.9,12.3 21.2,12 20.9,15.3 23.5,16 20.9,16.7 21.2,20 17.9,19.7 16,22.5 14.1,19.7 10.8,20 11.1,16.7 8.5,16 11.1,15.3 10.8,12 14.1,12.3" fill="#e6c66e"/></svg></span>
       <div class="brand-name">Wird</div>
     </div>
     <h2 class="auth-title">Sign in to continue</h2>
@@ -55,7 +55,7 @@
 <div class="auth-gate hidden" id="pendingGate">
   <div class="auth-card">
     <div class="auth-brand">
-      <span class="brand-mark" aria-hidden="true">﴾ ﴿</span>
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="28" height="28"><defs><linearGradient id="bmG3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e6c66e"/><stop offset="1" stop-color="#9a6d14"/></linearGradient></defs><polygon points="16,1 19.9,6.6 26.6,5.4 25.4,12.1 31,16 25.4,19.9 26.6,26.6 19.9,25.4 16,31 12.1,25.4 5.4,26.6 6.6,19.9 1,16 6.6,12.1 5.4,5.4 12.1,6.6" fill="url(#bmG3)"/><circle cx="16" cy="16" r="8.6" fill="var(--lapis)"/><polygon points="16,9.5 17.9,12.3 21.2,12 20.9,15.3 23.5,16 20.9,16.7 21.2,20 17.9,19.7 16,22.5 14.1,19.7 10.8,20 11.1,16.7 8.5,16 11.1,15.3 10.8,12 14.1,12.3" fill="#e6c66e"/></svg></span>
       <div class="brand-name">Wird</div>
     </div>
     <h2 class="auth-title">Awaiting approval</h2>
@@ -68,7 +68,7 @@
   <header class="topbar" id="topbar">
     <div class="topbar-top">
       <button class="brand" id="brandBtn">
-        <span class="brand-mark" aria-hidden="true">﴾ ﴿</span>
+        <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="28" height="28"><defs><linearGradient id="bmG4" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e6c66e"/><stop offset="1" stop-color="#9a6d14"/></linearGradient></defs><polygon points="16,1 19.9,6.6 26.6,5.4 25.4,12.1 31,16 25.4,19.9 26.6,26.6 19.9,25.4 16,31 12.1,25.4 5.4,26.6 6.6,19.9 1,16 6.6,12.1 5.4,5.4 12.1,6.6" fill="url(#bmG4)"/><circle cx="16" cy="16" r="8.6" fill="var(--lapis)"/><polygon points="16,9.5 17.9,12.3 21.2,12 20.9,15.3 23.5,16 20.9,16.7 21.2,20 17.9,19.7 16,22.5 14.1,19.7 10.8,20 11.1,16.7 8.5,16 11.1,15.3 10.8,12 14.1,12.3" fill="#e6c66e"/></svg></span>
         <span class="brand-name">Wird</span>
       </button>
       <div class="topbar-controls">
@@ -121,9 +121,9 @@
   <button type="button" id="updateBannerBtn">Refresh</button>
 </div>
 
-<script src="app.js?v=20260827"></script>
-<script src="firebase-config.js?v=20260827"></script>
-<script src="auth.js?v=20260827"></script>
+<script src="app.js?v=20261114"></script>
+<script src="firebase-config.js?v=20261114"></script>
+<script src="auth.js?v=20261114"></script>
 <script>
   // sw.js is now network-first for the app shell (see its own comments for
   // why that makes it safe to always register unconditionally again --
